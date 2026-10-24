@@ -65,6 +65,7 @@ fi
 
 Archive the endpoint chat; the archived chat retains its transcript and can be restored.
 Chat management (archive, list) is restricted to the main chat in some session contexts: a primary running inside a side chat may be unable to archive its own crewmates. Record the endpoint chat id in the checkpoint so teardown can be routed to a context that can execute it, and do not report teardown as done until the archive is confirmed.
+The proven route: message the main chat (its chat id is recorded in the home's captain preferences) naming the endpoint's chat id and name and the completed task; the main-chat agent archives the endpoint and confirms back. Verified live on 2026-10-24 with the FM-CREW-001 endpoint.
 
 ## Failure cases
 

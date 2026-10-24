@@ -2476,6 +2476,7 @@ One context limit surfaced in the follow-up: the endpoint's teardown archive cou
 
 A third exercise on 2026-10-24 exercised the crew topology ruled the same day (side-chat crewmates, subagent tiers, `mate: <slug>` naming): a crewmate endpoint named `mate: bearings` ran a read-only bearings sweep of the home; it delegated the checking to two of its own subagents, split by area, and distilled their results into a single report; the primary drained only the status file and that report, and the checkpoint-and-wake cycle repeated as in the second exercise.
 Observed: the tiered topology holds in practice — the burst-work detail stayed in the crewmate's context, and the primary's supervision cost was the status lines plus the distilled report.
+Its teardown also closed the archive question left open by the earlier runs: on the side-chat primary's message request, the main-chat agent archived the endpoint and confirmed back — the routed-teardown pattern a primary outside the main chat uses for chat management.
 The missing guarantee remains a supported external transport: no shell process outside the Muse runtime can perform these operations, so the backend stays blocked and unselectable, and this record evidences the in-session path only.
 
 ## Cursor Agent CLI
