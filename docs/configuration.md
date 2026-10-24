@@ -467,6 +467,9 @@ Any value other than `tmux`, `herdr`, `zellij`, `orca`, `cmux`, `paseo`, or `rex
 
 `codex-app` is not an accepted runtime backend yet; [`docs/codex-app-backend.md`](codex-app-backend.md) owns the Codex App boundary.
 
+`muse-app` is not an accepted runtime backend yet; [`docs/muse-app-backend.md`](muse-app-backend.md) owns the Muse app boundary.
+The key is reserved: this fork's backend work targets `muse-app` only, and the key stays rejected by `fm-spawn.sh` until the supported bridge that doc requires exists and the backend is implemented and verified.
+
 ### Liveness classification
 
 The session-start secondmate liveness sweep and the watcher's secondmate liveness tick use the recovery-grade `fm_backend_agent_state` classifier where verified.
@@ -493,6 +496,8 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
+
+- A muse-app task, once that backend exists, will additionally record `muse_app_chat_id=`; the field name is reserved now so the blocked boundary and the future implementation share one spelling.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 
