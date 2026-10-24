@@ -18,7 +18,7 @@ Status: unverified.
 | Busy | Read from the state tree, never from a process, pane, or event log. A registered open wait with no report is outstanding; a wait whose endpoint already reported is handled and cleared. |
 | Status return | Native. Crewmate endpoints run on the same VM with shell access and append Firstmate's normal lifecycle lines to `state/<id>.status`; the channel is not granted per path. |
 | Supervision | Checkpoint-and-wake: [`muse-app.md`](../../../../../docs/supervision-protocols/muse-app.md) owns the protocol. No turn-end guard exists or is possible, and there is no background arm. |
-| Session layer | Substitutable. Side chats by default — no tmux, no PTY, no pane scraping. Tmux or another session backend only when crew are CLI harnesses. |
+| Session layer | Side chats only — no tmux, no PTY, no pane scraping. This fork supports no other backend; CLI-harness crew is out of scope here. |
 | Approvals | Runtime approval cards, which Firstmate cannot pre-clear. Silent: reads, crew creation, state writes. Card: merges, pushes, outward messages. |
 | Secrets | Platform vault only. The state tree records that a secret exists, never its value. |
 | Trust | No workspace-trust dialog. The analog is the approval card plus per-chat discretion: a crewmate holds only its own charter's access. |

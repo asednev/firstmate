@@ -38,12 +38,11 @@ A visible chat that cannot report into Firstmate's normal lifecycle is not a com
 
 ## Session layer
 
-The session backend is substitutable under this primary.
-
-- Muse-native crew run as side chats: no tmux, no PTY, no pane scraping.
-  Supervision is chat state plus the state tree.
-- CLI-harness crew (Claude Code, Codex, Grok in tmux or another session backend) remains available unchanged when a task needs an interactive TUI or harness diversity.
-- The tradeoff is explicit: a Muse-native fleet is homogeneous — one model, one toolset — in exchange for full tool and connected-account access no CLI harness has.
+This fork supports exactly one runtime backend: `muse-app`.
+Its session layer is side chats, full stop: no tmux, no PTY, no pane scraping, and no substitute layer waiting behind them.
+Crew are Muse-native endpoints, supervised through chat state plus the state tree.
+CLI-harness crew under an upstream session backend (tmux, Herdr, Zellij, Orca, cmux, Paseo, Rex) is out of scope for this backend; those backends remain upstream's concern, neither extended nor certified here.
+The tradeoff is explicit: the fleet is homogeneous — one model, one toolset — in exchange for full tool and connected-account access no CLI harness has.
 
 ## Supervision
 

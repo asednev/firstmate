@@ -29,4 +29,4 @@ When this session owns supervision and away mode is not active:
 
 The captain's surface is this chat.
 Crewmate sessions never address the captain directly; their reports arrive here and are relayed.
-Side-chat crew need no session backend; CLI-harness crew, when used, keep their own backend's supervision protocol for the pane layer while this protocol owns the primary.
+Side-chat crew are the only crew surface under this backend; there is no pane layer and no second supervision protocol.
