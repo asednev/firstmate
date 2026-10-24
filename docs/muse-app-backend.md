@@ -92,10 +92,12 @@ The backend key is `muse-app`, never `muse`: that key belongs to the Muse Code h
 
 ## Secondmates
 
-Secondmates under this backend are native side chats.
-A secondmate is a persistent side chat with a charter and a scope; it idles until the primary routes work to it by message, and its marked replies return to the primary, never to the captain.
-Isolation is by charter plus a per-mate state directory inside the main home, not a separate `FM_HOME`: side chats share the VM and filesystem, so the home isolation a terminal secondmate gets from its own directory tree is a convention here, enforced by the charter.
-External side chats (messaging counterparts, other agents) are not secondmates; they are counterparty conversations and stay outside this backend's fleet model.
+Side chats are crewmate endpoints, not secondmates.
+A side chat is a task endpoint: created for a brief, supervised through its reports and the state tree, archived at teardown — however long it happens to live.
+What makes a secondmate is the home: an isolated `FM_HOME` with its own state, backlog, projects, and charter.
+Under this backend a secondmate is a persistent home on the VM — a sibling tree, not a directory inside the main home — and a standing side chat bound to that home is its session surface; work routed to the secondmate runs in that surface, or in per-task crewmate chats briefed from the home.
+Isolation therefore comes from the home, exactly as in terminal Firstmate — never from the chat, which shares the VM and filesystem with every other endpoint.
+External side chats (messaging counterparts, other agents) are neither crewmates nor secondmates; they are counterparty conversations and stay outside this backend's fleet model.
 
 ## Rollout
 

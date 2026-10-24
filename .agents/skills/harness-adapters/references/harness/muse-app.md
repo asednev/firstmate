@@ -64,4 +64,5 @@ Muse app is a blocked boundary, not a selectable backend.
 No supported transport lets an external shell process create, message, read, or archive a Muse chat, and the wake path is internal to the Muse runtime, so the backend exists only in the relocated topology with the primary inside the runtime.
 Nothing here authorizes adding `muse-app` to the known or spawn-capable backend registries.
 The in-session proof ships first: a research crewmate in a side chat, reporting against task ids, is the reference implementation path.
-Secondmates are native side chats — charter-scoped, idle until the primary routes work to them by message — and their rollout remains gated on create, send, read, status return, and archive proven through the normal backend dispatcher.
+Side chats are crewmate endpoints; secondmates are persistent isolated homes whose session surface is a standing side chat bound to that home.
+Secondmate rollout remains gated on create, send, read, status return, and archive proven through the normal backend dispatcher.
