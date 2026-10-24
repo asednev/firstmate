@@ -2452,6 +2452,23 @@ Observed guarantee: a Desktop-owned thread can write Firstmate lifecycle files w
 The missing guarantee remains a supported shell-callable bridge that lets Firstmate perform those operations against the same visible Desktop endpoint.
 App-server partial methods and raw socket experiments do not satisfy that bridge contract.
 
+## Muse app in-session lifecycle
+
+An in-session smoke ran on 2026-10-23 against the Muse app primary in the relocated topology [`muse-app-backend.md`](../muse-app-backend.md) owns: the Firstmate home lives on Muse's VM, and the primary session itself created and supervised a crewmate endpoint.
+Local paths and task-specific ids are intentionally not retained here.
+
+The sequence was:
+
+1. create a native side chat as the task endpoint and receive its durable chat id;
+2. send the endpoint its charter and a scout brief carrying a task-id marker and a required report against that id;
+3. the endpoint executed the brief — a full survey of this repo's harness adapter references and supervision protocols — and reported in its own chat with per-row file citations, including explicit none-found results where the survey required them;
+4. read the endpoint's transcript from the primary and relay the outcome;
+5. archive the exact endpoint as teardown; the archived chat retains its transcript and can be restored.
+
+Observed guarantee: create, send, read, and archive work end to end at the Muse chat layer, and a tasked endpoint reports against its task id without being addressed again.
+Not exercised by this smoke: the status-return file append (the endpoint reported in chat; its shell access to `state/<id>.status` is native but unproven), wake-on-change by the runtime hook (the primary collected the report during an active session, not from a hook wake), and any secondmate operation.
+The missing guarantee remains a supported external transport: no shell process outside the Muse runtime can perform these operations, so the backend stays blocked and unselectable, and this record evidences the in-session path only.
+
 ## Cursor Agent CLI
 
 Cursor runs crewmate, scout, secondmate, and primary work; [`supervision.md`](supervision.md#cursor-primary-park-2026-08-13) owns the primary evidence.

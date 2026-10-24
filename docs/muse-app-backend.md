@@ -104,3 +104,5 @@ Scout tasks come first.
 A research crewmate in a side chat, reporting against task ids, is the reference proof.
 Secondmate rollout follows the scout proof and remains gated on create, send, read, status return, and archive working through the normal backend dispatcher.
 Until then, Muse remains a blocked backend boundary with a verified in-session capability record, not a selectable backend.
+
+[`verification/runtime-backends.md`](verification/runtime-backends.md#muse-app-in-session-lifecycle) owns the in-session lifecycle smoke without exposing task-specific chat ids or local paths.
