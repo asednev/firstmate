@@ -20,7 +20,7 @@ Every procedure here was exercised live on 2026-10-23; the evidence is in [`veri
 
 ## Dispatch a crewmate
 
-1. Create a native side chat for the task and record its durable chat id.
+1. Create a native side chat for the task, named `mate: <slug>` with a short lowercase task slug (e.g. `mate: scout`), and record its durable chat id.
 2. Send the brief in one message: the charter, the task itself, the task-id marker, the required report against that id (empty and "nothing found" outcomes are reports), and the status-file instructions — the exact status file path and the line order above.
 3. The endpoint appends `started:` first and verifies the append by reading the file back before doing any work.
 
