@@ -90,9 +90,16 @@ return: endpoint appends state/<id>.status lifecycle lines
 Once available, Firstmate should add a real `bin/backends/muse-app.sh`, persist `backend=muse-app` and `muse_app_chat_id=`, and route spawn, send, peek, watch, and cleanup through the shared dispatcher.
 The backend key is `muse-app`, never `muse`: that key belongs to the Muse Code harness.
 
+## Secondmates
+
+Secondmates under this backend are native side chats.
+A secondmate is a persistent side chat with a charter and a scope; it idles until the primary routes work to it by message, and its marked replies return to the primary, never to the captain.
+Isolation is by charter plus a per-mate state directory inside the main home, not a separate `FM_HOME`: side chats share the VM and filesystem, so the home isolation a terminal secondmate gets from its own directory tree is a convention here, enforced by the charter.
+External side chats (messaging counterparts, other agents) are not secondmates; they are counterparty conversations and stay outside this backend's fleet model.
+
 ## Rollout
 
 Scout tasks come first.
 A research crewmate in a side chat, reporting against task ids, is the reference proof.
-Secondmate support remains out of scope until create, send, read, status return, and archive are proven through the normal backend dispatcher.
+Secondmate rollout follows the scout proof and remains gated on create, send, read, status return, and archive working through the normal backend dispatcher.
 Until then, Muse remains a blocked backend boundary with a verified in-session capability record, not a selectable backend.
