@@ -2452,6 +2452,29 @@ Observed guarantee: a Desktop-owned thread can write Firstmate lifecycle files w
 The missing guarantee remains a supported shell-callable bridge that lets Firstmate perform those operations against the same visible Desktop endpoint.
 App-server partial methods and raw socket experiments do not satisfy that bridge contract.
 
+## Muse app in-session lifecycle
+
+An in-session smoke ran on 2026-10-23 against the Muse app primary in the relocated topology [`muse-app-backend.md`](../muse-app-backend.md) owns: the Firstmate home lives on Muse's VM, and the primary session itself created and supervised a crewmate endpoint.
+Local paths and task-specific ids are intentionally not retained here.
+
+The sequence was:
+
+1. create a native side chat as the task endpoint and receive its durable chat id;
+2. send the endpoint its charter and a scout brief carrying a task-id marker and a required report against that id;
+3. the endpoint executed the brief — a full survey of this repo's harness adapter references and supervision protocols — and reported in its own chat with per-row file citations, including explicit none-found results where the survey required them;
+4. read the endpoint's transcript from the primary and relay the outcome;
+5. archive the exact endpoint as teardown; the archived chat retains its transcript and can be restored.
+
+A follow-up exercise the same day closed the two guarantees the first smoke left unexercised:
+
+1. status-return by file append — the endpoint appended `started:` to `state/<id>.status` before beginning work, `check:` after its collection step, and `done:` only after posting its report in chat; the primary verified the lines and their order by reading the file, not by trusting the endpoint's claim;
+2. wake-on-change — before ending its turn, the primary registered a checkpoint record in the state tree naming the open wait (task id, endpoint, status file, expected terminal line); a runtime hook polling the status file stayed silent while no terminal line existed, then fired exactly one wake when the `done:` line appeared and disabled itself after firing; the woken primary drained the status file and the endpoint report, reconciled both against the checkpoint, and marked the checkpoint handled with a timestamp, verified by read-back.
+
+Observed guarantee: create, send, read, and archive work end to end at the Muse chat layer; a tasked endpoint reports against its task id without being addressed again; the status-return file append carries the lifecycle in order; and checkpoint registration plus a state-watching hook delivers exactly-once wake-on-change.
+Not exercised: any secondmate operation.
+One context limit surfaced in the follow-up: the endpoint's teardown archive could not be executed from the primary's side-chat context (chat management there is restricted to the main chat), so this run's archive guarantee rests on the first smoke, where the primary held a context that could archive.
+The missing guarantee remains a supported external transport: no shell process outside the Muse runtime can perform these operations, so the backend stays blocked and unselectable, and this record evidences the in-session path only.
+
 ## Cursor Agent CLI
 
 Cursor runs crewmate, scout, secondmate, and primary work; [`supervision.md`](supervision.md#cursor-primary-park-2026-08-13) owns the primary evidence.

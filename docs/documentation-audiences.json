@@ -219,6 +219,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/muse-app.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/omp.md",
       "audience": "agent-runtime"
     },
@@ -328,6 +332,14 @@
     },
     {
       "path": "docs/codex-app-backend.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/muse-app-backend.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/muse-app-runbook.md",
       "audience": "operator-current"
     },
     {
@@ -460,6 +472,10 @@
     },
     {
       "path": "docs/supervision-protocols/grok.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/supervision-protocols/muse-app.md",
       "audience": "agent-runtime"
     },
     {
