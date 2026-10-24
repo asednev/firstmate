@@ -2465,8 +2465,14 @@ The sequence was:
 4. read the endpoint's transcript from the primary and relay the outcome;
 5. archive the exact endpoint as teardown; the archived chat retains its transcript and can be restored.
 
-Observed guarantee: create, send, read, and archive work end to end at the Muse chat layer, and a tasked endpoint reports against its task id without being addressed again.
-Not exercised by this smoke: the status-return file append (the endpoint reported in chat; its shell access to `state/<id>.status` is native but unproven), wake-on-change by the runtime hook (the primary collected the report during an active session, not from a hook wake), and any secondmate operation.
+A follow-up exercise the same day closed the two guarantees the first smoke left unexercised:
+
+1. status-return by file append — the endpoint appended `started:` to `state/<id>.status` before beginning work, `check:` after its collection step, and `done:` only after posting its report in chat; the primary verified the lines and their order by reading the file, not by trusting the endpoint's claim;
+2. wake-on-change — before ending its turn, the primary registered a checkpoint record in the state tree naming the open wait (task id, endpoint, status file, expected terminal line); a runtime hook polling the status file stayed silent while no terminal line existed, then fired exactly one wake when the `done:` line appeared and disabled itself after firing; the woken primary drained the status file and the endpoint report, reconciled both against the checkpoint, and marked the checkpoint handled with a timestamp, verified by read-back.
+
+Observed guarantee: create, send, read, and archive work end to end at the Muse chat layer; a tasked endpoint reports against its task id without being addressed again; the status-return file append carries the lifecycle in order; and checkpoint registration plus a state-watching hook delivers exactly-once wake-on-change.
+Not exercised: any secondmate operation.
+One context limit surfaced in the follow-up: the endpoint's teardown archive could not be executed from the primary's side-chat context (chat management there is restricted to the main chat), so this run's archive guarantee rests on the first smoke, where the primary held a context that could archive.
 The missing guarantee remains a supported external transport: no shell process outside the Muse runtime can perform these operations, so the backend stays blocked and unselectable, and this record evidences the in-session path only.
 
 ## Cursor Agent CLI
