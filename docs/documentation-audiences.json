@@ -331,6 +331,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/muse-app-backend.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/configuration.md",
       "audience": "operator-current"
     },
@@ -460,6 +464,10 @@
     },
     {
       "path": "docs/supervision-protocols/grok.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/supervision-protocols/muse-app.md",
       "audience": "agent-runtime"
     },
     {
