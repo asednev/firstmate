@@ -6,6 +6,7 @@ Every procedure here was exercised live on 2026-10-23; the evidence is in [`veri
 ## Surfaces and state
 
 - The captain's surface is the Muse chat. The primary is a Muse session. A crewmate is a native side chat created for one brief; it never addresses the captain.
+- Crew is tiered. A crewmate's burst workers are that crewmate's own subagents, not additional side chats: subagent output is internal to the crewmate, and the primary drains only the crewmate's report and status file. The primary's own in-turn assistance is likewise subagents, and is not crew. Assign a task to a side-chat crewmate when the captain may need to see it, reach it, or audit it; assign a bounded step inside the primary's or a crewmate's active work to subagents.
 - State lives in the Firstmate home's state tree on the primary's VM, in the tree's own layout. Two files per supervised task:
   - `state/<task-id>.status` — lifecycle lines appended by the endpoint;
   - `state/<task-id>.checkpoint` — the open-wait record written by the primary.
