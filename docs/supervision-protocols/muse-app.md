@@ -30,3 +30,4 @@ When this session owns supervision and away mode is not active:
 The captain's surface is this chat.
 Crewmate sessions never address the captain directly; their reports arrive here and are relayed.
 Side-chat crew are the only crew surface under this backend; there is no pane layer and no second supervision protocol.
+Operating procedure — dispatch, status-file discipline, checkpoint fields, hook arming, wake handling, teardown, failure cases — lives in [`muse-app-runbook.md`](../muse-app-runbook.md).
