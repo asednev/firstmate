@@ -2473,6 +2473,9 @@ A follow-up exercise the same day closed the two guarantees the first smoke left
 Observed guarantee: create, send, read, and archive work end to end at the Muse chat layer; a tasked endpoint reports against its task id without being addressed again; the status-return file append carries the lifecycle in order; and checkpoint registration plus a state-watching hook delivers exactly-once wake-on-change.
 Not exercised: any secondmate operation.
 One context limit surfaced in the follow-up: the endpoint's teardown archive could not be executed from the primary's side-chat context (chat management there is restricted to the main chat), so this run's archive guarantee rests on the first smoke, where the primary held a context that could archive.
+
+A third exercise on 2026-10-24 exercised the crew topology ruled the same day (side-chat crewmates, subagent tiers, `mate: <slug>` naming): a crewmate endpoint named `mate: bearings` ran a read-only bearings sweep of the home; it delegated the checking to two of its own subagents, split by area, and distilled their results into a single report; the primary drained only the status file and that report, and the checkpoint-and-wake cycle repeated as in the second exercise.
+Observed: the tiered topology holds in practice — the burst-work detail stayed in the crewmate's context, and the primary's supervision cost was the status lines plus the distilled report.
 The missing guarantee remains a supported external transport: no shell process outside the Muse runtime can perform these operations, so the backend stays blocked and unselectable, and this record evidences the in-session path only.
 
 ## Cursor Agent CLI
