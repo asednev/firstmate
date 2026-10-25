@@ -26,7 +26,7 @@ Every procedure here was exercised live on 2026-10-23; the evidence is in [`veri
 Chat creation executes on a genuine captain turn and is refused on event-hook handoff turns, the same capability fact recorded under "Teardown" below.
 When a dispatch arises on a captain turn, follow the steps below.
 When a dispatch arises on a hook turn, the default is to hold it: write a dispatch-pending record (task id, intended `mate: <slug>`, brief location, and the mandate relied on), note it in the backlog, and execute the dispatch at the next captain turn before new work.
-The exception is work the captain's away-mode words require to be done while he is away and that cannot wait for his return: that work may run on a subagent endpoint, provided the checkpoint records `endpoint_type: subagent` and the words relied on at registration time — the checkpoint is written before the subagent starts work, never after — the work leaves a durable report under the home's `data/<task-id>/` whose path the checkpoint records as `report:`, and the completion relay to the captain discloses the substitution in its first line.
+The exception is work the captain's away-mode words require to be done while he is away and that cannot wait for his return: that work may run on a subagent endpoint, provided the checkpoint records `endpoint_type: subagent` and, as `mandate_words:`, the words relied on at registration time — the checkpoint is written before the subagent starts work, never after — the work leaves a durable report under the home's `data/<task-id>/` whose path the checkpoint records as `report:`, and the completion relay to the captain discloses the substitution in its first line.
 The linter checks the recorded report's existence for open subagent checkpoints; the disclosure itself is audited at inspection.
 
 1. Create a native side chat for the task, named `mate: <slug>` with a short lowercase task slug (e.g. `mate: scout`), and record its durable chat id.
@@ -64,7 +64,7 @@ fi
 - Dry-run it before enabling: with no terminal line present the only correct result is silent.
 - Enable it, then end the turn. The hook disables itself when it fires, so a wait wakes the primary exactly once.
 
-Optionally, arm a second hook per wait: the silence watchdog.
+Arm a second hook per wait whose checkpoint carries expectation fields: the silence watchdog.
 It polls the same status file against the checkpoint's expectation fields and wakes the primary once when `expected_first_check` passes with no `check:` line yet, or when `expected_terminal` passes with no terminal line.
 On that wake the primary reconciles from the state tree: steer the endpoint, extend the expectation in the checkpoint with a reason, or relay the stale wait to the captain.
 The watchdog never re-dispatches anything itself, and it disables itself when it fires, like the terminal wake.
