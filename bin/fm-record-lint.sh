@@ -16,7 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
 STATE="${1:-${FM_STATE_OVERRIDE:-$FM_HOME/state}}"
-HOME_ROOT=$(dirname "$STATE")
 
 usage() {
   sed -n '2,12{s/^# \{0,1\}//;p;}' "$0"
@@ -31,6 +30,8 @@ if [ ! -d "$STATE" ]; then
   printf 'record-lint: state dir not found: %s\n' "$STATE" >&2
   exit 2
 fi
+STATE=$(cd "$STATE" && pwd -P)
+HOME_ROOT=$(dirname "$STATE")
 
 findings=0
 checked=0
@@ -42,19 +43,23 @@ report() {  # <task-id> <problem>
 }
 
 count_lines() {  # <file> <anchored-regex> -> count on stdout
-  grep -c "$2" "$1" || true
+  grep -a -c "$2" "$1" || true
 }
 
 first_line_no() {  # <file> <anchored-regex> -> first matching line number, 0 if none
   local n
-  n=$(grep -n "$2" "$1" | head -n 1 | cut -d: -f1 || true)
+  n=$(grep -a -n "$2" "$1" | head -n 1 | cut -d: -f1 || true)
   printf '%s' "${n:-0}"
 }
 
 last_line_no() {  # <file> <anchored-regex> -> last matching line number, 0 if none
   local n
-  n=$(grep -n "$2" "$1" | tail -n 1 | cut -d: -f1 || true)
+  n=$(grep -a -n "$2" "$1" | tail -n 1 | cut -d: -f1 || true)
   printf '%s' "${n:-0}"
+}
+
+valid_ts() {  # <value> -> 0 when the value is a full ISO-shaped timestamp
+  [[ $1 =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])([T\ ][0-9]{2}:[0-9]{2}(:[0-9]{2})?([+-][0-9]{2}:?[0-9]{2}|Z)?)?[[:space:]]*$ ]]
 }
 
 field_value() {  # <file> <key> -> last value recorded for the key, empty if none
@@ -121,7 +126,7 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   closed=0
   if [ "$handled_count" -ge 1 ] || [ "$superseded" -eq 1 ]; then closed=1; fi
   deferred=0
-  if grep -q '^closure_deferred: \S' "$checkpoint"; then deferred=1; fi
+  if grep -q '^closure_deferred:[[:space:]]*\S' "$checkpoint"; then deferred=1; fi
 
   if ! grep -q '^state:' "$checkpoint"; then
     report "$id" "checkpoint has no state line"
@@ -137,10 +142,19 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   fi
   if [ "$superseded" -eq 1 ] && grep -q '^resolved_by: ' "$checkpoint"; then
     resolved=$(field_value "$checkpoint" resolved_by)
-    if [ "$resolved" != "captain-ruling" ] \
-      && [ ! -e "$STATE/$resolved.status" ] && [ ! -e "$STATE/$resolved.checkpoint" ]; then
-      report "$id" "resolved_by: names $resolved, which has no record in this tree"
-    fi
+    resolved=${resolved%"${resolved##*[![:space:]]}"}
+    case "$resolved" in
+      */*|..|.)
+        report "$id" "resolved_by: value is not a plain task id: $resolved"
+        ;;
+      captain-ruling)
+        ;;
+      *)
+        if [ ! -e "$STATE/$resolved.status" ] && [ ! -e "$STATE/$resolved.checkpoint" ]; then
+          report "$id" "resolved_by: names $resolved, which has no record in this tree"
+        fi
+        ;;
+    esac
   fi
   if [ "$handled_count" -ge 1 ] && [ "$superseded" -eq 1 ]; then
     report "$id" "checkpoint carries both state: handled and state: superseded"
@@ -160,7 +174,6 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   if grep -q '^closure_deferred:' "$checkpoint" && [ "$deferred" -eq 0 ]; then
     report "$id" "closure_deferred: without a reason"
   fi
-
   # Closure bookkeeping order: the closure line comes first, then its
   # timestamp, then any errata; a state: open line after the closure is a
   # contradiction.
@@ -173,6 +186,8 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
       report "$id" "closed without a handled_at: timestamp"
     elif [ "$handled_at_no" -lt "$closure_no" ]; then
       report "$id" "handled_at: recorded before the closure line"
+    elif ! valid_ts "$(field_value "$checkpoint" handled_at)"; then
+      report "$id" "handled_at: is not a timestamp"
     fi
     if [ "$open_no" -gt "$closure_no" ]; then
       report "$id" "state: open recorded after the closure"
@@ -190,8 +205,17 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   fi
 
   endpoint_type=$(field_value "$checkpoint" endpoint_type)
-  if [ "$(count_lines "$checkpoint" '^endpoint_type:')" -gt 1 ]; then
-    report "$id" "endpoint_type: appears more than once"
+  local key
+  for key in task endpoint_type endpoint_chat status_file expected registered \
+    wake_hook expected_first_check expected_terminal mandate_words report \
+    resolved_by handled_at; do
+    if [ "$(count_lines "$checkpoint" "^$key:")" -gt 1 ]; then
+      report "$id" "$key: appears more than once"
+    fi
+  done
+  if [ -n "$endpoint_type" ] \
+    && [ "$endpoint_type" != "crewmate" ] && [ "$endpoint_type" != "subagent" ]; then
+    report "$id" "checkpoint has an unrecognized endpoint_type: $endpoint_type"
   fi
 
   # Open waits carry the live contract: the fields the wake and the silence
@@ -200,13 +224,11 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   if [ "$closed" -eq 0 ]; then
     if [ -z "$endpoint_type" ]; then
       report "$id" "open checkpoint is missing endpoint_type:"
-    elif [ "$endpoint_type" != "crewmate" ] && [ "$endpoint_type" != "subagent" ]; then
-      report "$id" "open checkpoint has an unrecognized endpoint_type: $endpoint_type"
     fi
-    if ! grep -q '^expected_first_check: [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}' "$checkpoint"; then
+    if ! valid_ts "$(field_value "$checkpoint" expected_first_check)"; then
       report "$id" "open checkpoint is missing a valid expected_first_check: timestamp"
     fi
-    if ! grep -q '^expected_terminal: [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}' "$checkpoint"; then
+    if ! valid_ts "$(field_value "$checkpoint" expected_terminal)"; then
       report "$id" "open checkpoint is missing a valid expected_terminal: timestamp"
     fi
     if ! grep -q '^status_file: \S' "$checkpoint"; then
@@ -239,19 +261,22 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
         /*) ;;
         *) resolved="$HOME_ROOT/$resolved" ;;
       esac
-      canonical=$(readlink -f "$resolved" 2>/dev/null || printf '%s' "$resolved")
-      case "$canonical" in
-        "$HOME_ROOT/data/$id/"*)
-          if [ ! -f "$canonical" ]; then
-            report "$id" "subagent report is not a regular file: $report_path"
-          elif [ ! -s "$canonical" ]; then
-            report "$id" "subagent report is empty: $report_path"
-          fi
-          ;;
-        *)
-          report "$id" "subagent report is outside data/$id/: $report_path"
-          ;;
-      esac
+      if ! canonical=$(readlink -f "$resolved" 2>/dev/null); then
+        report "$id" "subagent report path cannot be canonicalized: $report_path"
+      else
+        case "$canonical" in
+          "$HOME_ROOT/data/$id/"*)
+            if [ ! -f "$canonical" ]; then
+              report "$id" "subagent report is not a regular file: $report_path"
+            elif [ ! -s "$canonical" ]; then
+              report "$id" "subagent report is empty: $report_path"
+            fi
+            ;;
+          *)
+            report "$id" "subagent report is outside data/$id/: $report_path"
+            ;;
+        esac
+      fi
     fi
   fi
 }
@@ -292,7 +317,11 @@ for checkpoint in "$STATE"/*.checkpoint; do
   id=$(basename "$checkpoint" .checkpoint)
   if [ -z "${seen[$id]:-}" ] && [ ! -e "$STATE/$id.status" ]; then
     checked=$((checked + 1))
-    report "$id" "checkpoint has no status file"
+    if [ ! -f "$checkpoint" ]; then
+      report "$id" "checkpoint path is not a regular file"
+    else
+      report "$id" "checkpoint has no status file"
+    fi
   fi
 done
 

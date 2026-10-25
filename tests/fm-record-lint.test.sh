@@ -245,6 +245,8 @@ expected_terminal: 2026-10-25T02:00:00Z"
 
 test_subagent_report_outside_data_fails() {
   local dir; dir=$(make_state subagent-report-outside)
+  mkdir -p "$TMP_ROOT/docs"
+  printf 'a real file outside the task folder\n' > "$TMP_ROOT/docs/muse-app-runbook.md"
   write_pair "$dir" FM-T-023 \
     "started: work started" \
     "task: FM-T-023
@@ -403,6 +405,140 @@ state: open"
   expect_code 1 "$LINT_CODE" "nonsense expectation"
   assert_contains "$LINT_OUTPUT" "missing a valid expected_terminal:" "unusable expectation is named"
   pass "an expected_terminal: that is not a timestamp fails"
+}
+
+test_uncanonicalizable_report_fails() {
+  local dir; dir=$(make_state report-no-readlink)
+  mkdir -p "$TMP_ROOT/data/FM-T-033" "$TMP_ROOT/fakebin"
+  printf 'worker report\n' > "$TMP_ROOT/data/FM-T-033/report.md"
+  printf '#!/bin/sh\nexit 1\n' > "$TMP_ROOT/fakebin/readlink"
+  chmod +x "$TMP_ROOT/fakebin/readlink"
+  write_pair "$dir" FM-T-033 \
+    "started: work started" \
+    "task: FM-T-033
+endpoint_type: subagent
+mandate_words: finish the consolidation while I am away
+report: data/FM-T-033/report.md
+$(open_fields FM-T-033)
+state: open"
+  LINT_OUTPUT=$(PATH="$TMP_ROOT/fakebin:$PATH" FM_STATE_OVERRIDE="$dir" "$LINT" 2>&1)
+  LINT_CODE=$?
+  expect_code 1 "$LINT_CODE" "uncanonicalizable report path"
+  assert_contains "$LINT_OUTPUT" "cannot be canonicalized" "readlink failure is a finding, not a fallback"
+  pass "a report path that cannot be canonicalized fails"
+}
+
+test_relative_state_path_passes() {
+  local dir; dir=$(make_state relcase)
+  mkdir -p "$TMP_ROOT/data/FM-T-034"
+  printf 'worker report\n' > "$TMP_ROOT/data/FM-T-034/report.md"
+  write_pair "$dir" FM-T-034 \
+    "started: work started" \
+    "task: FM-T-034
+endpoint_type: subagent
+mandate_words: finish the consolidation while I am away
+report: data/FM-T-034/report.md
+$(open_fields FM-T-034)
+state: open"
+  LINT_OUTPUT=$(cd "$TMP_ROOT" && "$LINT" relcase 2>&1)
+  LINT_CODE=$?
+  expect_code 0 "$LINT_CODE" "relative state path"
+  pass "a valid record passes when the state dir is given as a relative path"
+}
+
+test_closed_junk_endpoint_type_fails() {
+  local dir; dir=$(make_state junk-endpoint-type)
+  write_pair "$dir" FM-T-035 \
+    "started: work started
+done: report posted" \
+    "task: FM-T-035
+endpoint_type: subagent extra
+state: open
+state: handled
+handled_at: 2026-10-25T00:00:00Z"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "junk endpoint_type on a closed record"
+  assert_contains "$LINT_OUTPUT" "unrecognized endpoint_type" "junk endpoint type is named"
+  pass "a closed checkpoint with a junk endpoint_type: fails"
+}
+
+test_duplicate_task_key_fails() {
+  local dir; dir=$(make_state dup-task-key)
+  write_pair "$dir" FM-T-036 \
+    "started: work started
+done: report posted" \
+    "task: FM-T-WRONG
+task: FM-T-036
+endpoint_type: crewmate
+state: open
+state: handled
+handled_at: 2026-10-25T00:00:00Z"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "duplicate task key"
+  assert_contains "$LINT_OUTPUT" "task: appears more than once" "duplicate scalar key is named"
+  pass "duplicate scalar keys fail"
+}
+
+test_garbage_handled_at_fails() {
+  local dir; dir=$(make_state garbage-handled-at)
+  write_pair "$dir" FM-T-037 \
+    "started: work started
+done: report posted" \
+    "task: FM-T-037
+endpoint_type: crewmate
+state: open
+state: handled
+handled_at: yesterday-ish"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "garbage handled_at"
+  assert_contains "$LINT_OUTPUT" "handled_at: is not a timestamp" "garbage closure timestamp is named"
+  pass "a handled_at: that is not a timestamp fails"
+}
+
+test_resolver_path_escape_fails() {
+  local dir; dir=$(make_state resolver-escape)
+  write_pair "$dir" FM-T-038 \
+    "started: work started
+blocked: merge conflict needs a successor" \
+    "task: FM-T-038
+endpoint_type: crewmate
+state: open
+state: superseded
+resolved_by: ../FM-EXT-1
+handled_at: 2026-10-25T00:00:00Z"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "resolver path escape"
+  assert_contains "$LINT_OUTPUT" "not a plain task id" "escaping resolver is named"
+  pass "a resolved_by: containing a path fails"
+}
+
+test_impossible_date_fails() {
+  local dir; dir=$(make_state impossible-date)
+  write_pair "$dir" FM-T-039 \
+    "started: work started" \
+    "task: FM-T-039
+endpoint_type: crewmate
+endpoint_chat: 00000000-0000-0000-0000-000000000000
+status_file: /tmp/FM-T-039.status
+expected: terminal line plus report in endpoint chat
+registered: 2026-10-25T00:00:00Z
+wake_hook: fm-t-039
+expected_first_check: 2026-10-25T01:00:00Z
+expected_terminal: 2026-13-45T99:99:99Z
+state: open"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "impossible date"
+  assert_contains "$LINT_OUTPUT" "missing a valid expected_terminal:" "impossible date is named"
+  pass "an expected_terminal: with an impossible date fails"
+}
+
+test_tabbed_deferral_reason_passes() {
+  local dir; dir=$(make_state deferred-tab)
+  printf 'started: work started\ndone: report posted\n' > "$dir/FM-T-040.status"
+  printf 'task: FM-T-040\nendpoint_type: crewmate\nendpoint_chat: 00000000-0000-0000-0000-000000000000\n%s\nstate: open\nclosure_deferred:\treport missing; wait stays open\n' "$(open_fields FM-T-040)" > "$dir/FM-T-040.checkpoint"
+  lint "$dir"
+  expect_code 0 "$LINT_CODE" "tabbed deferral reason"
+  pass "a closure_deferred: reason after a tab is recognized"
 }
 
 test_clean_closed_pair_passes() {
@@ -613,3 +749,11 @@ test_open_after_closure_fails
 test_checkpoint_crlf_fails
 test_resolved_by_nonexistent_fails
 test_nonsense_expectation_fails
+test_uncanonicalizable_report_fails
+test_relative_state_path_passes
+test_closed_junk_endpoint_type_fails
+test_duplicate_task_key_fails
+test_garbage_handled_at_fails
+test_resolver_path_escape_fails
+test_impossible_date_fails
+test_tabbed_deferral_reason_passes
