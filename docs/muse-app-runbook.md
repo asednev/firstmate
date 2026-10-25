@@ -27,7 +27,7 @@ Chat creation executes on a genuine captain turn and is refused on event-hook ha
 When a dispatch arises on a captain turn, follow the steps below.
 When a dispatch arises on a hook turn, the default is to hold it: write a dispatch-pending record (task id, intended `mate: <slug>`, brief location, and the mandate relied on), note it in the backlog, and execute the dispatch at the next captain turn before new work.
 The exception is work the captain's away-mode words require to be done while he is away and that cannot wait for his return: that work may run on a subagent endpoint, provided the checkpoint records `endpoint_type: subagent` and, as `mandate_words:`, the words relied on at registration time — the checkpoint is written before the subagent starts work, never after — the work leaves a durable report under the home's `data/<task-id>/` whose path the checkpoint records as `report:`, and the completion relay to the captain discloses the substitution in its first line.
-The linter checks the recorded report's existence for open subagent checkpoints; the disclosure itself is audited at inspection.
+The linter checks subagent checkpoints, open or closed, for `mandate_words:` and for the recorded report's presence as a non-empty file under `data/<task-id>/`; the disclosure itself is audited at inspection.
 
 1. Create a native side chat for the task, named `mate: <slug>` with a short lowercase task slug (e.g. `mate: scout`), and record its durable chat id.
 2. Send the brief in one message: the charter, the task itself, the task-id marker, the required report against that id (empty and "nothing found" outcomes are reports), and the status-file instructions — the exact status file path and the line order above.
