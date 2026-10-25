@@ -36,6 +36,10 @@ report() {  # <task-id> <problem>
   findings=$((findings + 1))
 }
 
+count_lines() {  # <file> <anchored-regex> -> count on stdout
+  grep -c "$2" "$1" || true
+}
+
 # Status-line structure, checked in one awk pass per file. An in-flight file
 # with no terminal line yet is clean; anything after a terminal line is not.
 lint_status() {  # <task-id> <status-file>
@@ -43,8 +47,12 @@ lint_status() {  # <task-id> <status-file>
   while IFS= read -r problem; do
     report "$id" "$problem"
   done < <(awk '
-    BEGIN { started = 0; terminal = 0; first = 1 }
+    BEGIN { started = 0; terminal = 0; first = 1; seen_check = 0; crlf = 0 }
     {
+      if (/\r$/) {
+        if (!crlf) { print "file uses CRLF line endings"; crlf = 1 }
+        sub(/\r$/, "")
+      }
       if (first) {
         if ($0 !~ /^started:/) print "first status line is not started:"
         first = 0
@@ -52,8 +60,10 @@ lint_status() {  # <task-id> <status-file>
       if ($0 ~ /^started:/) {
         started++
         if (started > 1) print "started: appears more than once"
-      } else if ($0 ~ /^check:/ || $0 ~ /^correction:/) {
-        # in-order progress lines; nothing to check
+      } else if ($0 ~ /^check:/) {
+        seen_check = 1
+      } else if ($0 ~ /^correction:/) {
+        if (!seen_check) print "correction: with no earlier check: line to supersede"
       } else if ($0 ~ /^(done|blocked):/) {
         terminal++
         if (terminal > 1) print "more than one terminal line"
@@ -68,10 +78,94 @@ lint_status() {  # <task-id> <status-file>
   ' "$file")
 }
 
+lint_pair() {  # <task-id> <status-file> <checkpoint-file>
+  local id=$1 status=$2 checkpoint=$3
+  local handled_count superseded closed deferred endpoint_type report_path resolved
+
+  handled_count=$(count_lines "$checkpoint" '^state: handled[[:space:]]*$')
+  superseded=0
+  grep -q '^state: superseded[[:space:]]*$' "$checkpoint" && superseded=1
+  closed=0
+  if [ "$handled_count" -ge 1 ] || [ "$superseded" -eq 1 ]; then closed=1; fi
+  deferred=0
+  grep -q '^closure_deferred:' "$checkpoint" && deferred=1
+
+  if ! grep -q '^state:' "$checkpoint"; then
+    report "$id" "checkpoint has no state line"
+  fi
+  if [ "$handled_count" -gt 1 ]; then
+    report "$id" "state: handled appears $handled_count times"
+  fi
+  if [ "$superseded" -eq 1 ] && ! grep -q '^resolved_by: ' "$checkpoint"; then
+    report "$id" "state: superseded without resolved_by:"
+  fi
+  if [ "$handled_count" -ge 1 ] && [ "$superseded" -eq 1 ]; then
+    report "$id" "checkpoint carries both state: handled and state: superseded"
+  fi
+
+  # A closure must match its terminal line: handled closes done:, superseded
+  # closes blocked:.
+  if [ "$handled_count" -ge 1 ] && ! grep -q '^done:' "$status"; then
+    report "$id" "marked handled but the status terminal line is not done:"
+  fi
+  if [ "$superseded" -eq 1 ] && ! grep -q '^blocked:' "$status"; then
+    report "$id" "closed as superseded but the status terminal line is not blocked:"
+  fi
+  if grep -q '^done:' "$status" && [ "$closed" -eq 0 ] && [ "$deferred" -eq 0 ]; then
+    report "$id" "status reached done: but the wait was never closed"
+  fi
+
+  if grep -q '^handled_at:' "$checkpoint" && [ "$closed" -eq 0 ]; then
+    report "$id" "handled_at: recorded but the wait has no closure"
+  fi
+  if grep -q '^errata:' "$checkpoint" && [ "$closed" -eq 0 ]; then
+    report "$id" "errata: recorded on a checkpoint that is not closed"
+  fi
+
+  # Open waits carry the live contract: the fields the wake and the silence
+  # watchdog read. Closed records are history and are not rechecked for them.
+  if [ "$closed" -eq 0 ]; then
+    endpoint_type=$(sed -n 's/^endpoint_type: //p' "$checkpoint" | head -n 1)
+    if [ -z "$endpoint_type" ]; then
+      report "$id" "open checkpoint is missing endpoint_type:"
+    elif [ "$endpoint_type" != "crewmate" ] && [ "$endpoint_type" != "subagent" ]; then
+      report "$id" "open checkpoint has an unrecognized endpoint_type: $endpoint_type"
+    fi
+    if ! grep -q '^expected_first_check:' "$checkpoint"; then
+      report "$id" "open checkpoint is missing expected_first_check:"
+    fi
+    if ! grep -q '^expected_terminal:' "$checkpoint"; then
+      report "$id" "open checkpoint is missing expected_terminal:"
+    fi
+    if [ "$endpoint_type" = "crewmate" ] && ! grep -q '^endpoint_chat:' "$checkpoint"; then
+      report "$id" "open crewmate checkpoint is missing endpoint_chat:"
+    fi
+    if [ "$endpoint_type" = "subagent" ]; then
+      report_path=$(sed -n 's/^report: //p' "$checkpoint" | head -n 1)
+      if [ -z "$report_path" ]; then
+        report "$id" "open subagent checkpoint is missing report:"
+      else
+        resolved=$report_path
+        case "$resolved" in
+          /*) ;;
+          *) resolved="$FM_HOME/$resolved" ;;
+        esac
+        if [ ! -f "$resolved" ]; then
+          report "$id" "subagent report not found: $report_path"
+        fi
+      fi
+    fi
+  fi
+}
+
 for status in "$STATE"/*.status; do
   [ -e "$status" ] || continue
   id=$(basename "$status" .status)
   checked=$((checked + 1))
+  if [ ! -f "$status" ]; then
+    report "$id" "status path is not a regular file"
+    continue
+  fi
   lint_status "$id" "$status"
 
   checkpoint="$STATE/$id.checkpoint"
@@ -79,37 +173,14 @@ for status in "$STATE"/*.status; do
     report "$id" "status file has no checkpoint"
     continue
   fi
-
-  if ! grep -q '^state:' "$checkpoint"; then
-    report "$id" "checkpoint has no state line"
-  fi
-
-  handled_count=$(grep -c '^state: handled' "$checkpoint" || true)
-  if [ "$handled_count" -gt 1 ]; then
-    report "$id" "state: handled appears $handled_count times"
-  fi
-
-  superseded=0
-  if grep -q '^state: superseded' "$checkpoint"; then
-    superseded=1
-    if ! grep -q '^resolved_by:' "$checkpoint"; then
-      report "$id" "state: superseded without resolved_by:"
-    fi
-  fi
-
-  if [ "$handled_count" -ge 1 ] && ! grep -q '^done:' "$status"; then
-    report "$id" "marked handled but the status terminal line is not done:"
-  fi
-
-  if grep -q '^done:' "$status" && [ "$handled_count" -eq 0 ] && [ "$superseded" -eq 0 ]; then
-    report "$id" "status reached done: but the wait was never closed"
-  fi
+  lint_pair "$id" "$status" "$checkpoint"
 done
 
 for checkpoint in "$STATE"/*.checkpoint; do
   [ -e "$checkpoint" ] || continue
   id=$(basename "$checkpoint" .checkpoint)
   if [ ! -f "$STATE/$id.status" ]; then
+    checked=$((checked + 1))
     report "$id" "checkpoint has no status file"
   fi
 done

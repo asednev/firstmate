@@ -8,7 +8,7 @@ Supervision is a registry on disk plus a runtime wake hook; this protocol is the
 When this session owns supervision and away mode is not active:
 1. Drain first.
    Read the state tree and every unread crewmate report (bounded chat reads with cursors) before acting.
-   Reconcile each registered open wait against reality: a wait whose endpoint reported `done:` is handled and cleared, never re-dispatched; a wait whose endpoint reported `blocked:` stays open until a successor completes its objective or the captain rules.
+   Reconcile each registered open wait against reality: a wait whose endpoint reported `done:` with its report is handled and cleared, never re-dispatched; a wait whose endpoint reported `blocked:` stays open until a successor completes its objective or the captain rules.
 2. Dispatch by message.
    Each task goes to its crewmate endpoint with a task-id marker and a required report against that id.
    Empty and "nothing happened" outcomes are reports too.
@@ -19,6 +19,7 @@ When this session owns supervision and away mode is not active:
 4. Arm the wake.
    A runtime hook polls the state tree and endpoint state and wakes this session on change only.
    Waiting is silent.
+   Silence past a checkpoint's recorded expectation is also a wake condition, under the runbook's silence-watchdog paragraph; the deadline is set at dispatch, so it is not in-session polling.
    Never poll in-context, and never simulate a wake by re-reading on a timer inside the session.
 5. On wake, drain again (step 1), handle `signal`, `stale`, `check`, or `heartbeat` per the harness-neutral contract in `AGENTS.md`, relay outcomes to the captain, and re-checkpoint before ending the turn.
    Decisions an endpoint reserves for the captain enter the custody flow in the runbook's captain-decisions section.
@@ -33,5 +34,5 @@ Re-entry after an away period runs the runbook's return gate before ordinary wor
 
 The captain's surface is this chat.
 Crewmate sessions never address the captain directly; their reports arrive here and are relayed.
-Side-chat crew are the only crew surface under this backend; there is no pane layer and no second supervision protocol.
+Side-chat crew are the only crew surface under this backend, apart from the runbook's subagent dispatch exception; there is no pane layer and no second supervision protocol.
 Operating procedure — dispatch, status-file discipline, checkpoint fields, hook arming, wake handling, teardown, failure cases — lives in [`muse-app-runbook.md`](../muse-app-runbook.md).

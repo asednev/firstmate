@@ -26,7 +26,8 @@ Every procedure here was exercised live on 2026-10-23; the evidence is in [`veri
 Chat creation executes on a genuine captain turn and is refused on event-hook handoff turns, the same capability fact recorded under "Teardown" below.
 When a dispatch arises on a captain turn, follow the steps below.
 When a dispatch arises on a hook turn, the default is to hold it: write a dispatch-pending record (task id, intended `mate: <slug>`, brief location, and the mandate relied on), note it in the backlog, and execute the dispatch at the next captain turn before new work.
-The exception is work the captain's away-mode words require to be done while he is away and that cannot wait for his return: that work may run on a subagent endpoint, provided the checkpoint records `endpoint_type: subagent` and the words relied on at registration time, the work leaves a durable report under the home's `data/<task-id>/`, and the completion relay to the captain discloses the substitution in its first line.
+The exception is work the captain's away-mode words require to be done while he is away and that cannot wait for his return: that work may run on a subagent endpoint, provided the checkpoint records `endpoint_type: subagent` and the words relied on at registration time — the checkpoint is written before the subagent starts work, never after — the work leaves a durable report under the home's `data/<task-id>/` whose path the checkpoint records as `report:`, and the completion relay to the captain discloses the substitution in its first line.
+The linter checks the recorded report's existence for open subagent checkpoints; the disclosure itself is audited at inspection.
 
 1. Create a native side chat for the task, named `mate: <slug>` with a short lowercase task slug (e.g. `mate: scout`), and record its durable chat id.
 2. Send the brief in one message: the charter, the task itself, the task-id marker, the required report against that id (empty and "nothing found" outcomes are reports), and the status-file instructions — the exact status file path and the line order above.
@@ -67,15 +68,20 @@ Optionally, arm a second hook per wait: the silence watchdog.
 It polls the same status file against the checkpoint's expectation fields and wakes the primary once when `expected_first_check` passes with no `check:` line yet, or when `expected_terminal` passes with no terminal line.
 On that wake the primary reconciles from the state tree: steer the endpoint, extend the expectation in the checkpoint with a reason, or relay the stale wait to the captain.
 The watchdog never re-dispatches anything itself, and it disables itself when it fires, like the terminal wake.
-`bin/fm-record-lint.sh` validates a state tree against the status and checkpoint contract at reconciliation points (bearings, stow, session start).
+`bin/fm-record-lint.sh` validates a state tree's status lines, checkpoint closures, and open-checkpoint fields against that contract at reconciliation points (bearings, stow, session start).
 
 ## Handle a wake
 
 1. Drain: read the full status file and the endpoint's recent chat messages.
 2. Reconcile against the checkpoint: how the wait closes depends on the terminal line, per steps 4 and 5.
-3. Relay the outcome to the captain, with the status lines as the evidence for the file return channel. Every relay also states the number of teardowns currently pending (see "Teardown") until that number is zero.
-4. On `done:` with the report present, close the wait: read the checkpoint first, and if a `state: handled` line is already present, stop — the wait is already closed. Otherwise append `state: handled` and `handled_at: <timestamp>` and verify by reading it back.
-5. On `blocked:`, or if the report is missing, relay that instead and mark nothing handled; the wait stays open. When a successor task later completes the blocked task's objective, close the blocked checkpoint as `state: superseded` with `resolved_by: <successor task id>` and a timestamp — never as handled.
+3. Relay the outcome to the captain, with the status lines as the evidence for the file return channel.
+   Every relay also states how many endpoint archives are still pending (see "Teardown") until none are.
+4. On `done:` with the report present, close the wait: read the checkpoint first, and if a `state: handled` line is already present, stop — the wait is already closed.
+   Otherwise append `state: handled` and `handled_at: <timestamp>` and verify by reading it back.
+5. On `blocked:`, or if the report is missing, relay that instead and mark nothing handled; the wait stays open.
+   A wait left open records why: `closure_deferred: <reason>` on the checkpoint.
+   When a successor task later completes the blocked task's objective, close the blocked checkpoint as `state: superseded` with `resolved_by: <successor task id>` and a timestamp — never as handled.
+   If the captain rules on a blocked wait directly, close it the same way with `resolved_by: captain-ruling`.
 
 ## Return from away mode
 
@@ -96,7 +102,7 @@ Nothing is built on a provisional default until he answers, and a contrary answe
 
 Archive the endpoint chat; the archived chat retains its transcript and can be restored.
 On a genuine captain turn, a primary running inside a side chat executes chat management directly — create, send, list, and archive (corrected 2026-10-25: 11 crewmates archived directly from the First Mate side chat on captain turns). Record the endpoint chat id in the checkpoint regardless, and do not report teardown as done until the archive call itself returns.
-Chat management is refused on event-hook handoff turns, and reading another chat's history is restricted to the main chat. On a hook turn, teardown waits for the next captain turn or routes through the main chat: message the main chat (its chat id is recorded in the home's captain preferences) naming the endpoint's chat id and name and the completed task; the main-chat agent archives the endpoint and confirms back. That routed path was verified live on 2026-10-24 with the FM-CREW-001 endpoint and remains the route wherever a direct archive is refused.
+Chat management is refused on event-hook handoff turns, and reading another chat's history is restricted to the main chat. On a hook turn, teardown waits for the next captain turn; at that turn, if a direct archive is still refused, it routes through the main chat: message the main chat (its chat id is recorded in the home's captain preferences) naming the endpoint's chat id and name and the completed task; the main-chat agent archives the endpoint and confirms back. That routed path was verified live on 2026-10-24 with the FM-CREW-001 endpoint and remains the route wherever a direct archive is refused.
 Teardown is part of the handling sequence: archive in the same sequence whenever the turn shape allows it.
 When it cannot execute — a hook turn, or a routed archive not yet confirmed — the checkpoint gains `teardown: pending`, naming the route that will close it (the next captain turn, or the main-chat route), and the pending count surfaces in every relay until it reaches zero.
 An endpoint deliberately kept open for the captain to read is recorded as `teardown: retained` with the reason, instead of being left silently unarchived.
