@@ -264,18 +264,26 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
       if ! canonical=$(readlink -f "$resolved" 2>/dev/null); then
         report "$id" "subagent report path cannot be canonicalized: $report_path"
       else
-        case "$canonical" in
-          "$HOME_ROOT/data/$id/"*)
-            if [ ! -f "$canonical" ]; then
-              report "$id" "subagent report is not a regular file: $report_path"
-            elif [ ! -s "$canonical" ]; then
-              report "$id" "subagent report is empty: $report_path"
-            fi
-            ;;
-          *)
-            report "$id" "subagent report is outside data/$id/: $report_path"
-            ;;
-        esac
+        prefix_dir="$HOME_ROOT/data/$id"
+        if [ -d "$prefix_dir" ]; then
+          prefix_dir=$(readlink -f "$prefix_dir" 2>/dev/null || printf '%s' "$prefix_dir")
+        fi
+        if [ "$canonical" = "$prefix_dir" ]; then
+          report "$id" "subagent report is not a regular file: $report_path"
+        else
+          case "$canonical" in
+            "$prefix_dir/"*)
+              if [ ! -f "$canonical" ]; then
+                report "$id" "subagent report is not a regular file: $report_path"
+              elif [ ! -s "$canonical" ]; then
+                report "$id" "subagent report is empty: $report_path"
+              fi
+              ;;
+            *)
+              report "$id" "subagent report is outside data/$id/: $report_path"
+              ;;
+          esac
+        fi
       fi
     fi
   fi

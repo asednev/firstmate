@@ -541,6 +541,24 @@ test_tabbed_deferral_reason_passes() {
   pass "a closure_deferred: reason after a tab is recognized"
 }
 
+test_symlinked_data_dir_passes() {
+  local home="$TMP_ROOT/linked-home"
+  mkdir -p "$home/state" "$TMP_ROOT/linked-realdata/FM-T-041"
+  printf 'worker report\n' > "$TMP_ROOT/linked-realdata/FM-T-041/report.md"
+  ln -s "$TMP_ROOT/linked-realdata" "$home/data"
+  write_pair "$home/state" FM-T-041 \
+    "started: work started" \
+    "task: FM-T-041
+endpoint_type: subagent
+mandate_words: finish the consolidation while I am away
+report: data/FM-T-041/report.md
+$(open_fields FM-T-041)
+state: open"
+  lint "$home/state"
+  expect_code 0 "$LINT_CODE" "symlinked data dir"
+  pass "a valid subagent report passes when data/ is a symlink"
+}
+
 test_clean_closed_pair_passes() {
   local dir; dir=$(make_state closed)
   write_pair "$dir" FM-T-001 \
@@ -757,3 +775,4 @@ test_garbage_handled_at_fails
 test_resolver_path_escape_fails
 test_impossible_date_fails
 test_tabbed_deferral_reason_passes
+test_symlinked_data_dir_passes
