@@ -559,6 +559,25 @@ state: open"
   pass "a valid subagent report passes when data/ is a symlink"
 }
 
+test_symlinked_task_dir_escape_fails() {
+  local home="$TMP_ROOT/escape-home"
+  mkdir -p "$home/state" "$home/data" "$TMP_ROOT/escape-outside"
+  printf 'worker report\n' > "$TMP_ROOT/escape-outside/report.md"
+  ln -s "$TMP_ROOT/escape-outside" "$home/data/FM-T-042"
+  write_pair "$home/state" FM-T-042 \
+    "started: work started" \
+    "task: FM-T-042
+endpoint_type: subagent
+mandate_words: finish the consolidation while I am away
+report: data/FM-T-042/report.md
+$(open_fields FM-T-042)
+state: open"
+  lint "$home/state"
+  expect_code 1 "$LINT_CODE" "symlinked task dir escape"
+  assert_contains "$LINT_OUTPUT" "outside data/FM-T-042/" "task-dir symlink escape is named"
+  pass "a data/<task-id> symlink pointing outside the home fails"
+}
+
 test_clean_closed_pair_passes() {
   local dir; dir=$(make_state closed)
   write_pair "$dir" FM-T-001 \
@@ -776,3 +795,4 @@ test_resolver_path_escape_fails
 test_impossible_date_fails
 test_tabbed_deferral_reason_passes
 test_symlinked_data_dir_passes
+test_symlinked_task_dir_escape_fails

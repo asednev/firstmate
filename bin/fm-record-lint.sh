@@ -268,7 +268,13 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
         if [ -d "$prefix_dir" ]; then
           prefix_dir=$(readlink -f "$prefix_dir" 2>/dev/null || printf '%s' "$prefix_dir")
         fi
-        if [ "$canonical" = "$prefix_dir" ]; then
+        data_dir="$HOME_ROOT/data"
+        if [ -d "$data_dir" ]; then
+          data_dir=$(readlink -f "$data_dir" 2>/dev/null || printf '%s' "$data_dir")
+        fi
+        if [ "$prefix_dir" != "$data_dir/$id" ]; then
+          report "$id" "subagent report is outside data/$id/: $report_path"
+        elif [ "$canonical" = "$prefix_dir" ]; then
           report "$id" "subagent report is not a regular file: $report_path"
         else
           case "$canonical" in
