@@ -103,7 +103,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 
 ### Shape on this backend
 
-- A secondmate home lives at `~/workspace/firstmate/homes/<id>/`, a sibling tree to the main home, holding a dedicated checkout of this repo plus the home's own `config/`, `data/`, `state/`, and `projects/` trees.
+- A secondmate home lives at `~/workspace/firstmate-homes/<id>/`, a sibling tree beside the main home, holding a dedicated checkout of this repo plus the home's own `config/`, `data/`, `state/`, and `projects/` trees.
 - The home carries the canonical identity markers: `.fm-secondmate-parent` binds it to the main home, and `.fm-secondmate-home` marks it as a secondmate home.
 - A standing side chat named `second: <project>` is bound to the home as its session surface.
 - The home is the identity and the chat is replaceable: if the chat is lost, a fresh chat bound to the same home resumes the mate.
