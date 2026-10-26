@@ -65,4 +65,4 @@ No supported transport lets an external shell process create, message, read, or 
 Nothing here authorizes adding `muse-app` to the known or spawn-capable backend registries.
 The in-session proof ships first: a research crewmate in a side chat, reporting against task ids, is the reference implementation path.
 Side chats are crewmate endpoints; secondmates are persistent isolated homes whose session surface is a standing side chat bound to that home.
-Secondmate rollout remains gated on create, send, read, status return, and archive proven through the normal backend dispatcher.
+Secondmate rollout is gated on the FM-SECONDMATE-001 exercise defined in [`docs/muse-app-backend.md`](../../../../docs/muse-app-backend.md).

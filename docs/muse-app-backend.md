@@ -94,7 +94,7 @@ The backend key is `muse-app`, never `muse`: that key belongs to the Muse Code h
 Side chats are crewmate endpoints, not secondmates.
 A side chat is a task endpoint: created for a brief, supervised through its reports and the state tree, archived at teardown — however long it happens to live.
 What makes a secondmate is the home: an isolated `FM_HOME` with its own state, backlog, projects, and charter.
-Under this backend a secondmate is a persistent home on the VM — a sibling tree, not a directory inside the main home — and a standing side chat bound to that home is its session surface; work routed to the secondmate runs in that surface, or in per-task crewmate chats briefed from the home.
+Under this backend a secondmate is a persistent home on the VM — a sibling tree, not a directory inside the main home — and a standing side chat bound to that home is its session surface; work routed to the secondmate runs in that surface, in the mate's own subagents, or in per-task crewmate chats briefed from the home (see Crew surfaces inside a mate home).
 Isolation therefore comes from the home, exactly as in terminal Firstmate — never from the chat, which shares the VM and filesystem with every other endpoint.
 External side chats (messaging counterparts, other agents) are neither crewmates nor secondmates; they are counterparty conversations and stay outside this backend's fleet model.
 
@@ -109,6 +109,8 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - The home is the identity and the chat is replaceable: if the chat is lost, a fresh chat bound to the same home resumes the mate.
 - The binding is recorded in the main home's registry line and in the mate home's parent marker; no other record of the binding is authoritative.
 - On the start phrase, the mate's chat takes the First Mate role scoped to its home, reading its charter the way the main home reads its captain file.
+- The home's `data/` carries `data/captain.md` (the captain-shared rules) alongside the charter; the charter adds the mate's persistent responsibility on top of those rules, never instead of them.
+- Provisioning refuses a mate id that collides with an existing state record basename in the main home, because the parent channel shares the state namespace with task records.
 
 ### Registry and routing
 
@@ -116,6 +118,16 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - Routing follows canonical intake: the main firstmate routes by scope with judgment, and bypasses a fitting mate only when the mate is blocked or the captain explicitly redirects the work.
 - Once a route exists, the main home does not also register the mate's projects as its own; a domain has exactly one operating home.
 - The pilot route is `eg1`: its scope is all EG1 ship and scout work, and its project list is `eg1` (`direct-PR`), which satisfies the canonical eligibility rule that secondmate projects are `no-mistakes` or `direct-PR` projects only.
+- Provisioning runs on a captain turn in the main home, and the route is in force for that session from that turn.
+- A First Mate session that started before provisioning re-reads `data/secondmates.md` at its next intake before dispatching project work; until it has, its stale project registration must not be used to bypass the mate.
+
+### Crew surfaces inside a mate home
+
+- Inside a mate home the default crew surface is the mate's own subagents: briefed from the mate home, checkpointed in its state tree, and reporting through the mate, exactly as the fleet's tiered crews already run under a crewmate.
+- Side-chat crewmates from a mate home are created only on a genuine captain turn in the mate's chat, under the runbook's turn-shape rule; the mate keeps a dispatch queue of work waiting for such a turn and drains it then.
+- Every outcome line the mate appends to the parent channel names the surface that ran the work (subagent or crewmate chat), so the choice of surface is always disclosed in the record.
+- This is a substrate-forced deviation from canonical, where a mate delegates to crewmate endpoints with the normal lifecycle: chat creation executes only on captain turns in this runtime, while a mate's normal wake is a doorbell turn, so crewmate chats cannot be its default surface.
+- The deviation is in the surface only: briefs, checkpoints, status records, and review duties are unchanged, and the mate never asks the main home to create its crewmates, so canonical's rule against supervising a mate's child tree from the main home stands.
 
 ### The charter
 
@@ -123,6 +135,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - EG1's domain hard rules include its delivery posture (`direct-PR`, merges only on the captain's explicit word), the pack version-bump and dirty-profile verification rules, ear-gate ownership by the captain, alpha before production, and CI spend discipline (local gates first, no redundant dispatches).
 - One clause is an addition beyond canonical, adopted by captain decision on 2026-10-25: when a direct captain intervention in the mate's chat changes the mate's work, the mate appends a one-line note of that fact to the parent channel.
 - Canonical deliberately leaves that case to the mate's reasoning with no durable evidence (see the parent channel design's evidence table); the clause closes the invisibility hole at the cost of one line, and the rest of the captain-contact contract below is canonical without exception.
+- Dated captain orders (a budget posture, a freeze, a deadline) belong in the mate's `data/captain.md` or its backlog, never in the charter; the charter carries only durable rules.
 
 ### The parent channel on this backend
 
@@ -131,25 +144,32 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - On this backend the endpoint sessions run on the same VM, so appending to the channel is a local file write from the mate's surface or its home's scripts, verified by read-back like every lifecycle write in this topology.
 - The main firstmate folds new channel lines on every wake under [`supervision-protocols/muse-app.md`](supervision-protocols/muse-app.md), and never reads the mate's chat: canonical forbids it, and this substrate's chat reads are bounded to the main chat, so the contract and the constraint agree.
 - The acceptance contract's read requirement is discharged for secondmates by the channel and by reads of the mate's validated home, not by transcript reads of the mate's chat.
+- The mate's write grant into the main home is exactly one file: appends to `state/<id>.status`.
+- That grant is convention-enforced, not technically enforced: every endpoint shares the VM filesystem, so nothing prevents a confused mate from writing other main-home records; the record linter catches form errors after the fact, and supervision surfaces any other mate-authored main-home write as a defect, never as a mechanism.
 
 ### Routed requests and the doorbell
 
 - A routed request is a durable record in the mate home's steering inbox (`state/<id>.inbox/` in the mate home), carrying the canonical marker and a `corr=<id>` token; the mate's answer carries the token on the parent channel.
 - Correlation state lives in the main home's `state/pending-replies/`; a missing answer gets exactly one repost before escalation, as canonical specifies.
 - The doorbell is a runtime hook that watches the mate home's inbox and state tree and wakes the mate's chat on change, the same watch pattern the main home already uses for its state tree.
-- The hook is registered from the mate's chat, because in this runtime a watch wakes the chat that owns it; the main home's own hook watches the parent channel in its state tree the same way.
+- The hook is a persistent polling hook whose delivery names the mate's chat; it is not the one-shot per-wait pattern, which would die on the first routed request.
+- Bootstrap order is explicit: the First Mate creates the mate's chat and sends the founding brief on a captain turn in the main home; on its founding turn the mate registers the doorbell, and provisioning is not complete until the mate confirms the registration with a line on the parent channel.
+- The route goes live only after that confirmation; requests that land in the inbox earlier are durable files, drained when the doorbell first fires — deferred, never lost.
 
 ### Liveness and relaunch
 
-- A side chat has no process to probe, so canonical's `dead` and `missing` verdicts map to chat-level facts: the bound chat was archived or deleted, or its doorbell hook has failed past the liveness cadence.
+- A side chat has no process to probe, so canonical's `dead` and `missing` verdicts map only to observable facts: the bound chat is archived or deleted (visible in the chat list), or a marked request has gone unanswered past its expectation and its one canonical repost.
+- Channel silence alone is never a death verdict: a healthy mate is silent by design, idle with an empty queue.
+- The doorbell's health is proven positively, not probed: the mate verifies its doorbell registration at every cold start, and a missing doorbell surfaces only as unanswered marked requests under the rule above.
 - Relaunch never creates a second home: it unarchives the bound chat or creates a fresh `second: <project>` chat bound to the surviving home, and the mate reconciles from its home before acting, exactly as a restart does.
 - Relaunch attempts are capped by the canonical liveness budget; past the cap the mate is parked behind its marker and escalated to the captain once.
+- One archive exception: if a relaunched chat is archived again, the second archive is treated as the captain's intent — the mate is parked and escalated immediately, with no further unarchive attempts.
 - A mate whose chat is mid-restart (including a context compaction) is not dead: it reconciles silently and idles, and an empty queue authorizes nothing.
 
 ### Authority
 
 - Inside its home the mate holds the full firstmate authority set under the repo's `AGENTS.md` contract, which binds primary firstmates and persistent secondmates identically.
-- It dispatches its own crewmates, ships through its projects' registered delivery modes, and publishes captain decisions as holds up the parent channel.
+- It dispatches its own crew on the surfaces defined under Crew surfaces inside a mate home, ships through its projects' registered delivery modes, and publishes captain decisions as holds up the parent channel.
 - Merges remain the captain's explicit word in every home; EG1's `direct-PR` posture carries no standing merge relaxation.
 - The mate generates no work of its own, acts only on routed work and direct captain intervention, and never launches a secondmate.
 - Under away mode the mate works the queue the main firstmate routed to it under the main home's mandate; it holds no mandate of its own and cannot widen its scope while the captain is away.
@@ -160,6 +180,9 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - There is no guardrail on that path and no approval step; the firstmate remains the default communication point because outcomes surface on the parent channel, not because the direct path is restricted.
 - Captain-facing content from the mate exists only on the parent channel; a captain-facing sentence in the mate's chat has not been sent.
 - The one added clause (see The charter) covers the record of a direct intervention, never permission for it.
+- The test for a direct intervention is turn provenance, not the absence of a marker: a captain-typed turn in the mate's chat is intervention, while a message relayed from the First Mate's chat and a hook payload are not, whatever they say.
+- The First Mate's founding brief, and any later message from the First Mate's chat, carries no captain authority beyond the routed request it accompanies; its authority flows from the captain turn that ordered it, recorded in the main home.
+- The note duty in The charter therefore triggers on captain-typed turns only.
 
 ### Record intake for an inherited domain
 
@@ -169,8 +192,11 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 
 ### Proof exercise
 
-- FM-SECONDMATE-001 closes the rollout gate: provision the `eg1` home, charter, and registry route; launch `second: eg1`; route one real EG1 task from the main firstmate through the inbox to the mate and its own crewmate; land the outcome on the parent channel and fold it into a captain report; publish one captain hold up the channel and answer it; and record one direct captain intervention in the mate's chat with its note line on the channel.
-- The exercise retires nothing, and its result is recorded in [`verification/runtime-backends.md`](verification/runtime-backends.md) beside the crewmate lifecycle proof.
+- FM-SECONDMATE-001 closes the rollout gate in two parts.
+- Part one provisions the real mate: provision the `eg1` home, charter, and registry route; launch `second: eg1`; route one real EG1 task from the main firstmate through the inbox to the mate and its crew; land the outcome on the parent channel and fold it into a captain report; publish one captain hold up the channel and answer it; and record one direct captain intervention in the mate's chat with its note line on the channel.
+- The intervention leg is performed during the provisioning captain turn, when the captain is present in the mate's chat by definition, so the gate never waits on an unscheduled captain act.
+- Part two proves retirement before any persistent mate depends on it: provision a disposable mate, route one task through it, and retire it end to end under the canonical refusal checks.
+- The EG1 mate is not retired by the exercise, and its results are recorded in [`verification/runtime-backends.md`](verification/runtime-backends.md) beside the crewmate lifecycle proof.
 
 ## Rollout
 
