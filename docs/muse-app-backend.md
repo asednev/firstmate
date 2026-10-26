@@ -110,7 +110,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - The binding is recorded in the main home's registry line and in the mate home's parent marker; no other record of the binding is authoritative.
 - On the start phrase, the mate's chat takes the First Mate role scoped to its home, reading its charter the way the main home reads its captain file.
 - The home's `data/` carries `data/captain.md` (the captain-shared rules) alongside the charter; the charter adds the mate's persistent responsibility on top of those rules, never instead of them.
-- Provisioning refuses a mate id that collides with an existing state record basename in the main home, because the parent channel shares the state namespace with task records.
+- At provisioning the main firstmate checks the mate id against the main home's existing state record basenames and refuses a collision, because the parent channel shares the state namespace with task records; no tool performs this check, so the check is part of the provisioning act itself.
 
 ### Registry and routing
 
