@@ -103,14 +103,14 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 
 ### Shape on this backend
 
-- A secondmate home lives at `~/workspace/firstmate/homes/<id>/`, a sibling tree to the main home, holding a dedicated checkout of this repo plus the home's own `config/`, `data/`, `state/`, and `projects/` trees.
+- A secondmate home lives at `~/workspace/firstmate-homes/<id>/`, a sibling tree beside the main home, holding a dedicated checkout of this repo plus the home's own `config/`, `data/`, `state/`, and `projects/` trees.
 - The home carries the canonical identity markers: `.fm-secondmate-parent` binds it to the main home, and `.fm-secondmate-home` marks it as a secondmate home.
 - A standing side chat named `second: <project>` is bound to the home as its session surface.
 - The home is the identity and the chat is replaceable: if the chat is lost, a fresh chat bound to the same home resumes the mate.
 - The binding is recorded in the main home's registry line and in the mate home's parent marker; no other record of the binding is authoritative.
 - On the start phrase, the mate's chat takes the First Mate role scoped to its home, reading its charter the way the main home reads its captain file.
 - The home's `data/` carries `data/captain.md` (the captain-shared rules) alongside the charter; the charter adds the mate's persistent responsibility on top of those rules, never instead of them.
-- Provisioning refuses a mate id that collides with an existing state record basename in the main home, because the parent channel shares the state namespace with task records.
+- At provisioning the main firstmate checks the mate id against the main home's existing state record basenames and refuses a collision, because the parent channel shares the state namespace with task records; no tool performs this check, so the check is part of the provisioning act itself.
 
 ### Registry and routing
 
