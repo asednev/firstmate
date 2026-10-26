@@ -161,6 +161,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - Bootstrap order is explicit: the First Mate creates the mate's chat and sends the founding brief on a captain turn in the main home; on its founding turn the mate registers the doorbell, and provisioning is not complete until the mate confirms the registration with a line on the parent channel.
 - Hook registration is not chat management and is permitted on the founding turn; the turn-shape refusal covers chat creation and messaging, not file-defined watches.
 - The route goes live only after that confirmation; requests that land in the inbox earlier are durable files, drained when the doorbell first fires - deferred, never lost.
+- Until that confirmation exists the First Mate sends no marked request, because a pending-reply expectation's clock starts at send and a pre-live send could exhaust its one repost before the mate has ever woken.
 
 ### Liveness and relaunch
 
