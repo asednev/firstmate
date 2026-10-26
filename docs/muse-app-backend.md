@@ -148,15 +148,15 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - On this backend the endpoint sessions run on the same VM, so appending to the channel is a local file write from the mate's surface or its home's scripts, verified by read-back like every lifecycle write in this topology.
 - The main firstmate folds new channel lines on every wake under [`supervision-protocols/muse-app.md`](supervision-protocols/muse-app.md), and never reads the mate's chat: canonical forbids it, and this substrate's chat reads are bounded to the main chat, so the contract and the constraint agree.
 - The acceptance contract's read requirement is discharged for secondmates by the channel and by reads of the mate's validated home, not by transcript reads of the mate's chat.
-- The mate's write grant into the main home is exactly one file: appends to `state/<id>.status`.
+- The mate's write grant into the main home is exactly two canonical surfaces: appends to its parent channel (`state/<id>.status`) and acknowledgement moves inside its own steering inbox (`state/<id>.inbox/`).
 - That grant is convention-enforced, not technically enforced: every endpoint shares the VM filesystem, so nothing prevents a confused mate from writing other main-home records; the record linter catches form errors after the fact, and supervision surfaces any other mate-authored main-home write as a defect, never as a mechanism.
-- Lifecycle writes from inside a mate home use absolute paths, and the one-file grant binds the mate's subagents exactly as it binds the mate.
+- Lifecycle writes from inside a mate home use absolute paths, and that grant binds the mate's subagents exactly as it binds the mate.
 
 ### Routed requests and the doorbell
 
-- A routed request is a durable record in the mate home's steering inbox (`state/<id>.inbox/` in the mate home), carrying the canonical marker and a `corr=<id>` token; the mate's answer carries the token on the parent channel.
+- A routed request is a durable record in the steering inbox in the main home (`state/<id>.inbox/` in the main home's state tree), written by the canonical send tooling and read and acknowledged by the mate from there, carrying the canonical marker and a `corr=<id>` token; the mate's answer carries the token on the parent channel.
 - Correlation state lives in the main home's `state/pending-replies/`; a missing answer gets exactly one repost before escalation, as canonical specifies.
-- The doorbell is a runtime hook that watches the mate home's inbox and state tree and wakes the mate's chat on change, the same watch pattern the main home already uses for its state tree.
+- The doorbell is a runtime hook that watches the main home's steering inbox for the mate and the mate home's own state tree and wakes the mate's chat on change, the same watch pattern the main home already uses for its state tree.
 - The hook is a persistent polling hook whose delivery names the mate's chat; it is not the one-shot per-wait pattern, which would die on the first routed request.
 - Bootstrap order is explicit: the First Mate creates the mate's chat and sends the founding brief on a captain turn in the main home; on its founding turn the mate registers the doorbell, and provisioning is not complete until the mate confirms the registration with a line on the parent channel.
 - Hook registration is not chat management and is permitted on the founding turn; the turn-shape refusal covers chat creation and messaging, not file-defined watches.
