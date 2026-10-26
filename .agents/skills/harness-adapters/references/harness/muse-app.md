@@ -4,7 +4,7 @@ The Muse personal agent (Meta) as a Firstmate primary: a hosted conversation, no
 This is not the `muse` harness in this directory; that adapter covers Muse Code, a terminal coding harness with its own `muse` binary, verified for crewmates and scouts only.
 This adapter covers a different surface from the same vendor, and its backend key is `muse-app`, never `muse`.
 Status: unverified.
-[`muse-app-backend.md`](../../../../../../docs/muse-app-backend.md) owns the boundary, the acceptance contract, and the required bridge; this file owns the operating facts once the primary runs in-session.
+[`muse-app-backend.md`](../../../../../docs/muse-app-backend.md) owns the boundary, the acceptance contract, and the required bridge; this file owns the operating facts once the primary runs in-session.
 
 ## Operating facts
 
