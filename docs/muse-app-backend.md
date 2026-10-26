@@ -94,7 +94,7 @@ The backend key is `muse-app`, never `muse`: that key belongs to the Muse Code h
 Side chats are crewmate endpoints, not secondmates.
 A side chat is a task endpoint: created for a brief, supervised through its reports and the state tree, archived at teardown — however long it happens to live.
 What makes a secondmate is the home: an isolated `FM_HOME` with its own state, backlog, projects, and charter.
-Under this backend a secondmate is a persistent home on the VM — a sibling tree, not a directory inside the main home — and a standing side chat bound to that home is its session surface; work routed to the secondmate runs in that surface, in the mate's own subagents, or in per-task crewmate chats briefed from the home (see Crew surfaces inside a mate home).
+Under this backend a secondmate is a persistent home on the VM - a sibling tree, not a directory inside the main home - and a standing side chat bound to that home is its session surface; work routed to the secondmate runs in that surface, in the mate's own subagents, or in per-task crewmate chats briefed from the home (see Crew surfaces inside a mate home).
 Isolation therefore comes from the home, exactly as in terminal Firstmate — never from the chat, which shares the VM and filesystem with every other endpoint.
 External side chats (messaging counterparts, other agents) are neither crewmates nor secondmates; they are counterparty conversations and stay outside this backend's fleet model.
 
@@ -154,7 +154,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - The doorbell is a runtime hook that watches the mate home's inbox and state tree and wakes the mate's chat on change, the same watch pattern the main home already uses for its state tree.
 - The hook is a persistent polling hook whose delivery names the mate's chat; it is not the one-shot per-wait pattern, which would die on the first routed request.
 - Bootstrap order is explicit: the First Mate creates the mate's chat and sends the founding brief on a captain turn in the main home; on its founding turn the mate registers the doorbell, and provisioning is not complete until the mate confirms the registration with a line on the parent channel.
-- The route goes live only after that confirmation; requests that land in the inbox earlier are durable files, drained when the doorbell first fires — deferred, never lost.
+- The route goes live only after that confirmation; requests that land in the inbox earlier are durable files, drained when the doorbell first fires - deferred, never lost.
 
 ### Liveness and relaunch
 
@@ -163,7 +163,7 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - The doorbell's health is proven positively, not probed: the mate verifies its doorbell registration at every cold start, and a missing doorbell surfaces only as unanswered marked requests under the rule above.
 - Relaunch never creates a second home: it unarchives the bound chat or creates a fresh `second: <project>` chat bound to the surviving home, and the mate reconciles from its home before acting, exactly as a restart does.
 - Relaunch attempts are capped by the canonical liveness budget; past the cap the mate is parked behind its marker and escalated to the captain once.
-- One archive exception: if a relaunched chat is archived again, the second archive is treated as the captain's intent — the mate is parked and escalated immediately, with no further unarchive attempts.
+- One archive exception: if a relaunched chat is archived again, the second archive is treated as the captain's intent - the mate is parked and escalated immediately, with no further unarchive attempts.
 - A mate whose chat is mid-restart (including a context compaction) is not dead: it reconciles silently and idles, and an empty queue authorizes nothing.
 
 ### Authority

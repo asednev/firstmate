@@ -4,7 +4,7 @@ The Muse personal agent (Meta) as a Firstmate primary: a hosted conversation, no
 This is not the `muse` harness in this directory; that adapter covers Muse Code, a terminal coding harness with its own `muse` binary, verified for crewmates and scouts only.
 This adapter covers a different surface from the same vendor, and its backend key is `muse-app`, never `muse`.
 Status: unverified.
-[`muse-app-backend.md`](../../../../../docs/muse-app-backend.md) owns the boundary, the acceptance contract, and the required bridge; this file owns the operating facts once the primary runs in-session.
+[`muse-app-backend.md`](../../../../../../docs/muse-app-backend.md) owns the boundary, the acceptance contract, and the required bridge; this file owns the operating facts once the primary runs in-session.
 
 ## Operating facts
 
@@ -65,4 +65,4 @@ No supported transport lets an external shell process create, message, read, or 
 Nothing here authorizes adding `muse-app` to the known or spawn-capable backend registries.
 The in-session proof ships first: a research crewmate in a side chat, reporting against task ids, is the reference implementation path.
 Side chats are crewmate endpoints; secondmates are persistent isolated homes whose session surface is a standing side chat bound to that home.
-Secondmate rollout is gated on the FM-SECONDMATE-001 exercise defined in [`docs/muse-app-backend.md`](../../../../docs/muse-app-backend.md).
+Secondmate rollout is gated on the FM-SECONDMATE-001 exercise defined in [`docs/muse-app-backend.md`](../../../../../docs/muse-app-backend.md).
