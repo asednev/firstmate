@@ -99,7 +99,7 @@ Isolation therefore comes from the home, exactly as in terminal Firstmate — ne
 External side chats (messaging counterparts, other agents) are neither crewmates nor secondmates; they are counterparty conversations and stay outside this backend's fleet model.
 
 The rest of this section is the secondmate design for this backend.
-It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`secondmate-parent-channel.md`](secondmate-parent-channel.md), and the secondmate provisioning skill) without deviation except the one clause flagged in The charter below.
+It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`secondmate-parent-channel.md`](secondmate-parent-channel.md), and the secondmate provisioning skill) without deviation except the two flagged deviations below: the crew-surface rule, and one clause in The charter.
 
 ### Shape on this backend
 
