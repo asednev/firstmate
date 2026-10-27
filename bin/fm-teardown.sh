@@ -227,6 +227,20 @@
 #   landed-work checks. Every other windowless record, including one with a
 #   spawn_gen, a non-tmux backend, or an ambiguous field, still faces the
 #   validator and refuses.
+#   The one named exception to that last sentence is the muse-app secondmate
+#   endpoint record (docs/muse-app-backend.md, "The endpoint record"): a
+#   record carrying backend=muse-app with kind=secondmate is classified
+#   into the windowless class at the probe from its own kind and backend
+#   fields, never by the synthetic-copy validation, after teardown's own
+#   record check (the named fields present exactly once, worktree=/project=/
+#   home= naming the same existing mate home, no window or terminal field,
+#   appended fields tolerated). Class membership confers the windowless
+#   treatment directly - validator skipped, backend-prerequisites gate on
+#   the class's default backend presentation, no endpoint kill, the
+#   transition-clearing call receiving the class's empty target - without
+#   passing through the legacy branches above, which key on generation
+#   tokens this record never carries. The shared validator is not taught
+#   the shape, so every other caller keeps refusing it.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
 # killed mid-git-operation can leave a .git/worktrees/<wt>/index.lock (or, for a
@@ -677,6 +691,57 @@ case "$TEARDOWN_WINDOW_COUNT:$(fm_meta_get "$META" window)" in
     esac
     ;;
 esac
+# The muse-app secondmate shape (docs/muse-app-backend.md, "The endpoint
+# record") is classified here, at the windowless-shape probe, from the
+# record's own kind and backend fields - never by the probe's
+# synthetic-copy validation above, which would refuse a backend it has
+# never heard of. Class membership confers the windowless treatment
+# directly at the gates below (endpoint validation skipped, the
+# backend-prerequisites gate running with the class's default backend
+# presentation, no endpoint kill, and the transition-clearing call
+# receiving the class's empty target), and it never passes through the
+# legacy branches, which key that treatment on missing or legacy
+# generation tokens a conforming record never carries. Ahead of those
+# gates the record itself is checked: the endpoint record's named fields
+# present, each exactly once, worktree=/project=/home= naming the same
+# existing mate home, and no window or terminal field; additional fields
+# appended by later canonical writers do not fail the check. The shared
+# endpoint validator is deliberately NOT taught this shape.
+TEARDOWN_MUSE_APP=0
+if [ "$(fm_meta_get "$META" backend)" = muse-app ] && [ "$TEARDOWN_META_KIND" = secondmate ]; then
+  TEARDOWN_MUSE_APP_SHAPE_OK=1
+  for TEARDOWN_MUSE_APP_KEY in kind backend muse_app_chat_id endpoint_task_id \
+      worktree project home projects mode yolo harness spawn_gen; do
+    TEARDOWN_MUSE_APP_COUNT=$(LC_ALL=C grep -c "^$TEARDOWN_MUSE_APP_KEY=" "$META" 2>/dev/null || true)
+    if [ "$TEARDOWN_MUSE_APP_COUNT" != 1 ]; then
+      TEARDOWN_MUSE_APP_SHAPE_OK=0
+    fi
+    # projects= alone may be empty: a project-less mate's registry list is.
+    if [ "$TEARDOWN_MUSE_APP_KEY" != projects ] \
+      && [ -z "$(fm_meta_get "$META" "$TEARDOWN_MUSE_APP_KEY")" ]; then
+      TEARDOWN_MUSE_APP_SHAPE_OK=0
+    fi
+  done
+  if [ "$(fm_meta_get "$META" endpoint_task_id)" != "$ID" ]; then
+    TEARDOWN_MUSE_APP_SHAPE_OK=0
+  fi
+  TEARDOWN_MUSE_APP_HOME=$(fm_meta_get "$META" home)
+  if [ "$(fm_meta_get "$META" worktree)" != "$TEARDOWN_MUSE_APP_HOME" ] \
+    || [ "$(fm_meta_get "$META" project)" != "$TEARDOWN_MUSE_APP_HOME" ] \
+    || [ -z "$TEARDOWN_MUSE_APP_HOME" ] \
+    || [ ! -d "$TEARDOWN_MUSE_APP_HOME" ]; then
+    TEARDOWN_MUSE_APP_SHAPE_OK=0
+  fi
+  if [ "$(LC_ALL=C grep -c '^window=' "$META" 2>/dev/null || true)" != 0 ] \
+    || [ "$(LC_ALL=C grep -c '^terminal=' "$META" 2>/dev/null || true)" != 0 ]; then
+    TEARDOWN_MUSE_APP_SHAPE_OK=0
+  fi
+  if [ "$TEARDOWN_MUSE_APP_SHAPE_OK" != 1 ]; then
+    echo "REFUSED: task $ID's record claims the muse-app secondmate shape but fails its record check (the named endpoint-record fields present exactly once, worktree=/project=/home= naming the same existing mate home, no window or terminal field); preserving task state." >&2
+    exit 1
+  fi
+  TEARDOWN_MUSE_APP=1
+fi
 if [ "$TEARDOWN_CLEANUP_RECOVERY" != orca ]; then
   if fm_backlog_transition_applies "$CONFIG" "$DATA" "$TEARDOWN_META_KIND"; then
     TEARDOWN_BACKLOG_APPLIES=1
@@ -1228,7 +1293,7 @@ fi
 WT=$(fm_meta_get "$META" worktree)
 PROJ=$(fm_meta_get "$META" project)
 T_ORCA=
-if [ "$TEARDOWN_WINDOWLESS" = 1 ]; then
+if [ "$TEARDOWN_WINDOWLESS" = 1 ] || [ "$TEARDOWN_MUSE_APP" = 1 ]; then
   BACKEND=tmux
   T=
 else
@@ -3872,7 +3937,7 @@ elif [ "$BACKEND" = rex ] && [ "$KIND" = secondmate ] && [ "$TEARDOWN_WINDOWLESS
   ( unset FM_ROOT_OVERRIDE; FM_HOME="$HOME_PATH" FM_ROOT="$HOME_PATH" STATE="$HOME_PATH/state" \
     fm_backend_kill "$BACKEND" "$T" "" "fm-$ID" ) \
     || endpoint_close_refusal "$ID" "$BACKEND" "$T" 1 || exit 1
-elif [ "$BACKEND" != orca ] && [ "$TEARDOWN_WINDOWLESS" != 1 ]; then
+elif [ "$BACKEND" != orca ] && [ "$TEARDOWN_WINDOWLESS" != 1 ] && [ "$TEARDOWN_MUSE_APP" != 1 ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" \
     || endpoint_close_refusal "$ID" "$BACKEND" "$T" 1 || exit 1
 fi
