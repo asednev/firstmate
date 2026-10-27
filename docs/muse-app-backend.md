@@ -107,10 +107,28 @@ It follows canonical Firstmate (the repo's `AGENTS.md` supervisor contract, [`se
 - The home carries the canonical identity markers: `.fm-secondmate-parent` binds it to the main home, and `.fm-secondmate-home` marks it as a secondmate home.
 - A standing side chat named `second: <project>` is bound to the home as its session surface.
 - The home is the identity and the chat is replaceable: if the chat is lost, a fresh chat bound to the same home resumes the mate.
-- The binding is recorded in the main home's registry line and in the mate home's parent marker; no other record of the binding is authoritative.
+- The binding is recorded in the main home's registry line, in the mate home's parent marker, and in the endpoint record (see The endpoint record); the registry line is the routing authority and the endpoint record is the delivery authority.
 - On the start phrase, the mate's chat takes the First Mate role scoped to its home, reading its charter the way the main home reads its captain file.
 - The home's `data/` carries `data/captain.md` (the captain-shared rules) alongside the charter; the charter adds the mate's persistent responsibility on top of those rules, never instead of them.
 - At provisioning the main firstmate checks the mate id against the main home's existing state record basenames and refuses a collision, because the parent channel shares the state namespace with task records; no tool performs this check, so the check is part of the provisioning act itself.
+
+### The endpoint record
+
+- Canonical tooling resolves a secondmate through its endpoint record, `state/<id>.meta` in the main home: `bin/fm-send.sh` reads the delivery target from the record before it classifies the send, backend validation runs before any delivery plane is chosen, and teardown's endpoint validator applies the same record shape.
+- On terminal backends `bin/fm-spawn.sh` writes that record at launch; on this backend nothing is launched, so the record is written at provisioning instead (captain decision, 2026-10-27: the seed writes the meta at provisioning).
+- The write is a named step of the provisioning sequence the main firstmate executes, after the mate's chat is created and before the route goes live: the record names the chat through the reserved `muse_app_chat_id=` field (see `docs/configuration.md`), `bin/fm-home-seed.sh` runs before any chat exists, and the record is never hand-written and never the mate's own act.
+- A mate is not provisioned until its record exists; a mate founded before this rule receives its record as a completion of its provisioning, before any further marked request is routed to it.
+- The record carries exactly these fields, each exactly once: `kind=secondmate`, `backend=muse-app`, `muse_app_chat_id=` naming the bound chat, `endpoint_task_id=` naming the mate id, `worktree=`, `project=`, and `home=` each naming the mate home, `projects=` carrying the registry project list, `mode=secondmate`, `yolo=off`, `harness=muse`, and `spawn_gen=` carrying one freshly generated identity token in the canonical format.
+- The record carries no `window=`, no `terminal=`, no per-backend atom fields, and no `remote_host=`: this backend has no terminal endpoint, and a window-shaped value would be read by liveness and control tooling as a real pane.
+- Target resolution learns one case: for `backend=muse-app` the delivery target is the `muse_app_chat_id=` value, and a muse-app record with no chat id does not resolve.
+- Backend validation learns the same boundary: `backend=muse-app` is a known backend value only on a record carrying `kind=secondmate`, and it names no spawnable endpoint, so no launch path accepts it as a spawn backend.
+- A send to a muse-app mate rides the inbox plane only: it writes the durable inbox record and confirms the pending-reply expectation exactly as canonical specifies, and it attempts no doorbell ring, because the doorbell hook's polling is the wake path on this backend.
+- The endpoint validator learns the matching case: a muse-app record is well-formed when it carries exactly the field set above, with `worktree=`, `project=`, and `home=` naming the same existing mate home and no window or terminal field present, so teardown's refusal checks accept the shape and retirement proceeds canonically - the registry line, the home, and the record are removed, and there is no endpoint to kill.
+- Probing consumers learn the same boundary from the other side: nothing probes the chat id as an endpoint, so crew state and the session-start digest report the mate's endpoint the way they report any windowless record, the mate's state comes from the parent channel and the validated home, and `bin/fm-control.sh` still refuses, because the `muse` harness family is not verified for secondmate records.
+- Liveness and restart tooling learn nothing: with no window recorded, canonical liveness stays silent on the mate and its verdicts remain the observable facts under Liveness and relaunch, and no code path relaunches, kills, or restarts a muse-app mate.
+- The registry line remains the routing record; the endpoint record repeats the home the way a canonical spawn record does, and provisioning writes both from the same home path in the same sitting.
+- `bin/fm-send.sh` gains no registry fallback: a mate with no endpoint record does not resolve, exactly as a terminal mate whose launch never published one.
+- The build that implements this record proves it live before the queued routing that depends on it resumes: a canonical `bin/fm-send.sh` marked send to the founded `eg1` mate, answered on the parent channel, with no hand-written inbox record anywhere in the proof.
 
 ### Registry and routing
 
