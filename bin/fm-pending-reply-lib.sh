@@ -855,6 +855,64 @@ fm_pending_reply_busy_state_from_observation() {  # <record-path> <observation>
   esac
 }
 
+# Turn-completion observation for a muse-app secondmate, whose endpoint
+# is a chat: there is no pane or terminal to read, so completion is
+# evidenced from the parent-side files a mate turn writes. The parent
+# channel appended after the request was delivered means a mate turn has
+# ended since (a correlated answer among those appends resolves the
+# record before observation ever runs, so an append that leaves the
+# record open is another turn's outcome or a progress line), and the
+# mate's inbox acknowledgement for this correlation, filed under
+# state/<task_id>.inbox/handled/, means the mate consumed the request.
+# With neither, the turn is presumed complete once the muse-app turn
+# bound (FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS, default 1800) has
+# elapsed since delivery - or since the recovery send, for the recovery
+# turn: the presumption is what lets grace run at all for a mate that
+# never wakes, and the one repost it unlocks is the probe that separates
+# a slow mate from a dead one before escalation. Anything younger with
+# no evidence is unknown, and busy is never reported: no parent-side
+# file proves a chat turn is currently live.
+fm_pending_reply_muse_app_observation() {  # <record-path> <state-dir>
+  local rec=$1 state=$2
+  local phase since channel task_id corr bound now mtime
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  phase=$(fm_pending_reply_get "$rec" phase)
+  case "$phase" in
+    awaiting_report) since=$(fm_pending_reply_get "$rec" delivered_epoch) ;;
+    recovery_sent) since=$(fm_pending_reply_get "$rec" recovery_sent_epoch) ;;
+    *) printf 'unknown'; return 0 ;;
+  esac
+  case "$since" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
+  # Deliberately undirected: bin/fm-wake-lib.sh is expanded once at the
+  # fm_pending_reply_try_resolve site; each directed site would re-expand
+  # its whole transitive graph under ShellCheck's external-source
+  # traversal. fm_path_mtime lives there; the wake globals are declared
+  # local for the reason fm_pending_reply_maybe_escalate documents.
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  channel=$(fm_pending_reply_get "$rec" parent_status)
+  if [ -n "$channel" ] && [ -f "$channel" ]; then
+    mtime=$(fm_path_mtime "$channel" 2>/dev/null || printf '')
+    case "$mtime" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$mtime" -gt "$since" ]; then printf 'idle'; return 0; fi ;;
+    esac
+  fi
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  corr=$(fm_pending_reply_get "$rec" corr_id)
+  if [ -n "$task_id" ] && [ -n "$corr" ] && [ -d "$state/$task_id.inbox/handled" ]; then
+    if grep -a -l -- "corr=$corr" "$state/$task_id.inbox/handled/"*.msg >/dev/null 2>&1; then
+      printf 'idle'; return 0
+    fi
+  fi
+  bound=${FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS:-1800}
+  case "$bound" in ''|*[!0-9]*) bound=1800 ;; esac
+  now=$(fm_pending_reply_now)
+  if [ $((now - since)) -ge "$bound" ]; then
+    printf 'idle'; return 0
+  fi
+  printf 'unknown'
+}
+
 # Explicit turn-completion proof (for tests and turn-end backends that surface
 # a completion event without a busy/idle pair).
 fm_pending_reply_mark_turn_completed() {  # <state-dir> <corr_id> [which: request|recovery]
@@ -1653,7 +1711,14 @@ fm_pending_reply_tick() {  # <state-dir>
         target="remote:$task_id"
         sm_home=
       fi
-      if [ -n "$target" ]; then
+      if [ "$backend" = muse-app ]; then
+        # A chat endpoint has no target to observe: completion comes
+        # from the parent-side evidence reader instead, and it is
+        # per-record (keyed to the record's own delivery), so it
+        # bypasses the per-task observation cache below.
+        observation=$(fm_pending_reply_muse_app_observation "$rec" "$state")
+        busy=$(fm_pending_reply_busy_state_from_observation "$rec" "$observation")
+      elif [ -n "$target" ]; then
         label="fm-$task_id"
         observation=
         found=0

@@ -38,6 +38,13 @@
 #      the decision; a retry while that decision is still open appends nothing
 #  19. A request summary keeps accented letters, drops control characters, and
 #      caps at 120 characters without splitting one under any caller locale
+#  20. A muse-app secondmate (chat endpoint, no observable target) completes
+#      its turn from parent-side evidence - a later parent-channel append or
+#      the mate's inbox acknowledgement for the correlation - or, with
+#      neither, by the bounded presumption once the muse-app turn bound has
+#      elapsed since delivery; the tick then sends the one recovery and
+#      escalates when the recovery turn is also missed, and the standalone
+#      scan entry point (bin/fm-pending-reply-scan.sh) drives the same tick
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -2102,6 +2109,150 @@ test_same_kind_escalation_reopens_after_operator_close() {
   ) || fail "same-kind re-escalation after an operator close failed"
   pass "a same-kind escalation after an operator close opens the decision again"
 }
+
+# --- 20. muse-app observation: evidence, presumption, recovery, escalation --
+
+SCAN="$ROOT/bin/fm-pending-reply-scan.sh"
+
+seed_muse_app_mate() {  # <home> <id>: endpoint record (exact muse-app set) + empty channel
+  local home=$1 id=$2 state="$1/state"
+  mkdir -p "$state"
+  printf '%s\n' \
+    'kind=secondmate' \
+    'backend=muse-app' \
+    "muse_app_chat_id=chat-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$TMP_ROOT/$id-mate-home" \
+    "project=$TMP_ROOT/$id-mate-home" \
+    "home=$TMP_ROOT/$id-mate-home" \
+    "projects=$id" \
+    'mode=secondmate' \
+    'yolo=off' \
+    'harness=muse' \
+    'spawn_gen=s1000.1.1' \
+    > "$state/$id.meta"
+  : > "$state/$id.status"
+}
+
+test_muse_app_evidence_recovers_then_escalates() {
+  local home state corr hook_log rec now0
+  home=$(setup_parent muse-app-evidence)
+  state="$home/state"
+  seed_muse_app_mate "$home" eg1
+  hook_log="$TMP_ROOT/muse-app-hook.log"
+  : > "$hook_log"
+  # Invoked indirectly through FM_PENDING_REPLY_SEND_HOOK, including
+  # through the scan subprocess: the log path reaches it as an exported
+  # variable, which a child shell inherits, unlike this function's
+  # locals.
+  export MUSE_APP_HOOK_LOG="$hook_log"
+  # shellcheck disable=SC2329
+  muse_app_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$MUSE_APP_HOOK_LOG"
+  }
+  export -f muse_app_hook
+  export FM_PENDING_REPLY_SEND_HOOK='muse_app_hook'
+  export FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS=1800
+  now0=$(date +%s)
+  export FM_PENDING_REPLY_NOW=$now0
+  corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the migration")
+  fm_pending_reply_mark_delivered "$state" "$corr" "$now0"
+  rec=$(fm_pending_reply_path "$state" "$corr")
+
+  # Young, no evidence: the channel predates delivery and the mate has
+  # not acknowledged - no completion, no recovery.
+  fm_pending_reply_tick "$state"
+  [ -z "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: a young request with no mate evidence must not complete"
+  [ ! -s "$hook_log" ] || fail "muse-app: no recovery may fire before completion"
+  [ "$(phase_of "$state" "$corr")" = awaiting_report ] \
+    || fail "muse-app: phase must stay awaiting_report, got $(phase_of "$state" "$corr")"
+
+  # A later channel append (another request's outcome) evidences that a
+  # mate turn ended after delivery: completion is set and, grace being
+  # zero in this suite, the one recovery fires - driven here through
+  # the standalone scan entry point the muse-app runners call.
+  printf 'done [corr=othercorr123456]: unrelated outcome\n' >> "$state/eg1.status"
+  touch -d "@$((now0 + 10))" "$state/eg1.status"
+  FM_PENDING_REPLY_NOW=$now0 FM_PENDING_REPLY_SEND_HOOK='muse_app_hook' \
+    "$SCAN" "$state" || fail "muse-app: the scan entry point must run the tick"
+  [ -n "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: a post-delivery channel append must complete the turn"
+  [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
+    || fail "muse-app: phase should be recovery_sent, got $(phase_of "$state" "$corr")"
+  [ "$(wc -l < "$hook_log" | tr -d ' ')" = 1 ] \
+    || fail "muse-app: exactly one recovery send expected"
+
+  # The recovery turn is also missed: aged past the turn bound with the
+  # channel silent since, the next tick completes the recovery turn and
+  # the record escalates instead of sitting in recovery_sent forever.
+  fm_pending_reply_set "$rec" recovery_sent_epoch $((now0 - 7200))
+  fm_pending_reply_tick "$state"
+  [ "$(phase_of "$state" "$corr")" = escalated ] \
+    || fail "muse-app: a missed recovery turn must escalate, got $(phase_of "$state" "$corr")"
+  [ -n "$(fm_pending_reply_get "$rec" escalated_epoch)" ] \
+    || fail "muse-app: escalation must stamp escalated_epoch"
+  [ "$(wc -l < "$hook_log" | tr -d ' ')" = 1 ] \
+    || fail "muse-app: escalation must not send a second recovery"
+  unset FM_PENDING_REPLY_SEND_HOOK
+  pass "muse-app: channel evidence completes the turn, one recovery fires via the scan, a missed recovery turn escalates"
+}
+
+test_muse_app_bound_and_ack_complete_the_turn() {
+  local home state corr hook_log rec now0
+  export FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS=1800
+  hook_log="$TMP_ROOT/muse-app-bound-hook.log"
+  : > "$hook_log"
+  export MUSE_APP_HOOK_LOG="$hook_log"
+  # shellcheck disable=SC2329
+  muse_app_bound_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$MUSE_APP_HOOK_LOG"
+  }
+  export -f muse_app_bound_hook
+  export FM_PENDING_REPLY_SEND_HOOK='muse_app_bound_hook'
+  now0=$(date +%s)
+  export FM_PENDING_REPLY_NOW=$now0
+
+  # Presumption: delivered long past the turn bound, the channel silent
+  # since before delivery, no acknowledgement - the turn is presumed
+  # complete so grace can run for a mate that never woke.
+  home=$(setup_parent muse-app-bound)
+  state="$home/state"
+  seed_muse_app_mate "$home" eg1
+  touch -d "@$((now0 - 8000))" "$state/eg1.status"
+  corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the audit")
+  fm_pending_reply_mark_delivered "$state" "$corr" $((now0 - 7200))
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  fm_pending_reply_tick "$state"
+  [ -n "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: a request past the turn bound with no evidence must presume completion"
+  [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
+    || fail "muse-app: the presumed completion must unlock the recovery, got $(phase_of "$state" "$corr")"
+
+  # Acknowledgement: young and inside the bound, with the channel
+  # silent - only the mate's handled/ acknowledgement for this
+  # correlation can complete the turn, and it does.
+  home=$(setup_parent muse-app-ack)
+  state="$home/state"
+  seed_muse_app_mate "$home" eg1
+  touch -d "@$((now0 - 200))" "$state/eg1.status"
+  corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the release")
+  fm_pending_reply_mark_delivered "$state" "$corr" $((now0 - 100))
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  mkdir -p "$state/eg1.inbox/handled"
+  printf 'schema=fm-task-inbox.v1\n--\n[fm-from-firstmate] corr=%s status of the release\n' "$corr" \
+    > "$state/eg1.inbox/handled/001.msg"
+  fm_pending_reply_tick "$state"
+  [ -n "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: the mate's inbox acknowledgement must complete the turn"
+  [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
+    || fail "muse-app: the acknowledged-but-unanswered request must reach recovery, got $(phase_of "$state" "$corr")"
+  unset FM_PENDING_REPLY_SEND_HOOK
+  pass "muse-app: the turn bound presumes completion for a silent mate, and the inbox acknowledgement completes a young turn"
+}
+
+test_muse_app_evidence_recovers_then_escalates
+test_muse_app_bound_and_ack_complete_the_turn
 
 test_summary_keeps_accents_and_caps_by_character() {
   local out long cap_chars loc
