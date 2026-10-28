@@ -39,12 +39,16 @@
 #  19. A request summary keeps accented letters, drops control characters, and
 #      caps at 120 characters without splitting one under any caller locale
 #  20. A muse-app secondmate (chat endpoint, no observable target) completes
-#      its turn from parent-side evidence - a later parent-channel append or
-#      the mate's inbox acknowledgement for the correlation - or, with
-#      neither, by the bounded presumption once the muse-app turn bound has
-#      elapsed since delivery; the tick then sends the one recovery and
-#      escalates when the recovery turn is also missed, and the standalone
-#      scan entry point (bin/fm-pending-reply-scan.sh) drives the same tick
+#      its turn from parent-side evidence - a mate outcome line appended to
+#      the parent channel after delivery (the library's own keyed lines do
+#      not count), or the mate's inbox acknowledgement whose own marked
+#      header carries the correlation (a quoted token does not count) - or,
+#      with neither, by the bounded presumption once the muse-app turn
+#      bound has elapsed since delivery; the observation is bound to the
+#      turn it was computed against; the tick then sends the one recovery
+#      and escalates when the recovery turn is also missed, and the
+#      standalone scan entry point (bin/fm-pending-reply-scan.sh) drives
+#      the same tick
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -2170,12 +2174,21 @@ test_muse_app_evidence_recovers_then_escalates() {
   [ "$(phase_of "$state" "$corr")" = awaiting_report ] \
     || fail "muse-app: phase must stay awaiting_report, got $(phase_of "$state" "$corr")"
 
-  # A later channel append (another request's outcome) evidences that a
-  # mate turn ended after delivery: completion is set and, grace being
-  # zero in this suite, the one recovery fires - driven here through
-  # the standalone scan entry point the muse-app runners call.
-  printf 'done [corr=othercorr123456]: unrelated outcome\n' >> "$state/eg1.status"
-  touch -d "@$((now0 + 10))" "$state/eg1.status"
+  # The library's own keyed escalation line for another request is
+  # parent machinery, not a mate turn: it must not complete this one.
+  printf 'blocked [at=%s key=pending-reply-ffffffffffffffff]: a missed-report escalation for another request\n' "$((now0 + 5))" >> "$state/eg1.status"
+  fm_pending_reply_tick "$state"
+  [ -z "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: a parent-generated channel line must not complete the turn"
+  [ "$(phase_of "$state" "$corr")" = awaiting_report ] \
+    || fail "muse-app: phase must stay awaiting_report after a parent line, got $(phase_of "$state" "$corr")"
+
+  # A later mate outcome line (another request's outcome) evidences
+  # that a mate turn ended after delivery: completion is set and,
+  # grace being zero in this suite, the one recovery fires - driven
+  # here through the standalone scan entry point the muse-app runners
+  # call.
+  printf 'done [at=%s]: corr=ffffffffffffffff settled an unrelated request\n' "$((now0 + 10))" >> "$state/eg1.status"
   FM_PENDING_REPLY_NOW=$now0 FM_PENDING_REPLY_SEND_HOOK='muse_app_hook' \
     "$SCAN" "$state" || fail "muse-app: the scan entry point must run the tick"
   [ -n "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
@@ -2231,6 +2244,25 @@ test_muse_app_bound_and_ack_complete_the_turn() {
   [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
     || fail "muse-app: the presumed completion must unlock the recovery, got $(phase_of "$state" "$corr")"
 
+  # Quoted-token control: another request's acknowledgement whose body
+  # quotes this correlation is not this request's acknowledgement -
+  # only the handled record whose own marked header carries the corr
+  # counts.
+  home=$(setup_parent muse-app-ack-quote)
+  state="$home/state"
+  seed_muse_app_mate "$home" eg1
+  corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the quoted request")
+  fm_pending_reply_mark_delivered "$state" "$corr" $((now0 - 100))
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  mkdir -p "$state/eg1.inbox/handled"
+  printf 'schema=fm-task-inbox.v1\n--\n[fm-from-firstmate] corr=eeeeeeeeeeeeeeee another request entirely\nfollow-up summary: the earlier corr=%s was mentioned here\n' "$corr" \
+    > "$state/eg1.inbox/handled/001.msg"
+  fm_pending_reply_tick "$state"
+  [ -z "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] \
+    || fail "muse-app: a quoted corr in another record's acknowledgement must not complete the turn"
+  [ "$(phase_of "$state" "$corr")" = awaiting_report ] \
+    || fail "muse-app: the quoted-corr record must stay awaiting_report, got $(phase_of "$state" "$corr")"
+
   # Acknowledgement: young and inside the bound, with the channel
   # silent - only the mate's handled/ acknowledgement for this
   # correlation can complete the turn, and it does.
@@ -2253,8 +2285,38 @@ test_muse_app_bound_and_ack_complete_the_turn() {
   pass "muse-app: the turn bound presumes completion for a silent mate, and the inbox acknowledgement completes a young turn"
 }
 
+test_muse_app_stale_observation_cannot_stamp_the_next_turn() {
+  local home state corr rec now0
+  home=$(setup_parent muse-app-stale)
+  state="$home/state"
+  seed_muse_app_mate "$home" eg1
+  export FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS=1800
+  now0=$(date +%s)
+  export FM_PENDING_REPLY_NOW=$now0
+  corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the handoff")
+  fm_pending_reply_mark_delivered "$state" "$corr" "$now0"
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  # A peer scan sent the recovery after a first scan computed its idle
+  # against the request turn: the record now sits in recovery_sent, and
+  # the stale idle - bound to the request turn - must not stamp the
+  # recovery turn complete (which would escalate it after the short
+  # grace instead of the recovery turn's own bound).
+  fm_pending_reply_set "$rec" phase recovery_sent
+  fm_pending_reply_set "$rec" recovery_attempted_epoch "$now0"
+  fm_pending_reply_set "$rec" recovery_sent_epoch "$now0"
+  fm_pending_reply_observe_busy "$state" "$corr" idle "awaiting_report:$now0"
+  [ -z "$(fm_pending_reply_get "$rec" recovery_turn_completed_epoch)" ] \
+    || fail "muse-app: a stale observation must not stamp the recovery turn"
+  # The same idle bound to the current turn stamps it.
+  fm_pending_reply_observe_busy "$state" "$corr" idle "recovery_sent:$now0"
+  [ -n "$(fm_pending_reply_get "$rec" recovery_turn_completed_epoch)" ] \
+    || fail "muse-app: a current-turn observation must stamp the recovery turn"
+  pass "muse-app: an observation is bound to the turn it was computed against"
+}
+
 test_muse_app_evidence_recovers_then_escalates
 test_muse_app_bound_and_ack_complete_the_turn
+test_muse_app_stale_observation_cannot_stamp_the_next_turn
 
 test_summary_keeps_accents_and_caps_by_character() {
   local out long cap_chars loc

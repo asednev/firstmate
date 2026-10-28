@@ -301,14 +301,18 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
 
 # is_parent_channel <task-id>: the status file is a secondmate's parent
 # channel when the endpoint record beside it (state/<id>.meta) carries
-# kind=secondmate. A parent channel accumulates doorbell confirmations
+# kind=secondmate, read the way the fleet reads meta fields: the LAST
+# kind= line wins (fm_meta_get in bin/fm-backend.sh, teardown's reads).
+# A parent channel accumulates doorbell confirmations
 # and one outcome per routed request across the mate's whole life, so
 # the single-task grammar (one started:, at most one terminal line,
 # nothing after it) and the checkpoint pairing do not apply to it.
 is_parent_channel() {  # <task-id>
-  local meta="$STATE/$1.meta"
+  local meta="$STATE/$1.meta" kind
   [ -f "$meta" ] || return 1
-  grep -aq '^kind=secondmate[[:space:]]*$' "$meta"
+  kind=$(sed -n 's/^kind=//p' "$meta" | tail -n 1)
+  kind=${kind%"${kind##*[![:space:]]}"}
+  [ "$kind" = secondmate ]
 }
 
 for status in "$STATE"/*.status; do

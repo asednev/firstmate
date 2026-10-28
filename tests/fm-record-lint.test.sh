@@ -188,6 +188,19 @@ test_channel_without_record_fails_as_task() {
   pass "the same channel content without a kind=secondmate endpoint record is linted as a task record"
 }
 
+test_channel_with_duplicate_kind_last_not_secondmate_fails() {
+  local dir; dir=$(make_state channel-dup-kind)
+  write_mate_channel "$dir"
+  # The fleet reads a meta field by its last value (fm_meta_get): a
+  # record whose last kind= line names a task kind is not a parent
+  # channel, even with an earlier kind=secondmate line in the file.
+  printf 'kind=ship\n' >> "$dir/eg1.meta"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "a record whose last kind= is a task kind does not exempt its channel"
+  assert_contains "$LINT_OUTPUT" "status file has no checkpoint" "the duplicate-kind channel is linted as a task record"
+  pass "the parent-channel classification reads the endpoint record's kind= by its last value"
+}
+
 test_closure_deferred_passes() {
   local dir; dir=$(make_state deferred)
   write_pair "$dir" FM-T-018 \
@@ -846,3 +859,4 @@ test_symlinked_data_dir_passes
 test_symlinked_task_dir_escape_fails
 test_mate_parent_channel_passes
 test_channel_without_record_fails_as_task
+test_channel_with_duplicate_kind_last_not_secondmate_fails
