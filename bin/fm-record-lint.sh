@@ -8,6 +8,10 @@
 # Relative record paths (a subagent checkpoint's report:) resolve against
 # the state dir's parent, which is the home that owns the tree.
 # The linter validates record form, not the truth of what is recorded.
+# A secondmate's parent channel (a .status file whose sibling endpoint
+# record carries kind=secondmate) is identified before the crewmate
+# checks and exempt from them: it is a persistent multi-request channel,
+# not a single task record, and it has no checkpoint.
 # Every finding prints one line: record-lint: <task-id>: <problem>.
 # Exit 0 when the tree is clean, 1 when any finding exists, 2 on usage error.
 set -eu
@@ -295,6 +299,18 @@ lint_pair() {  # <task-id> <status-file> <checkpoint-file>
   fi
 }
 
+# is_parent_channel <task-id>: the status file is a secondmate's parent
+# channel when the endpoint record beside it (state/<id>.meta) carries
+# kind=secondmate. A parent channel accumulates doorbell confirmations
+# and one outcome per routed request across the mate's whole life, so
+# the single-task grammar (one started:, at most one terminal line,
+# nothing after it) and the checkpoint pairing do not apply to it.
+is_parent_channel() {  # <task-id>
+  local meta="$STATE/$1.meta"
+  [ -f "$meta" ] || return 1
+  grep -aq '^kind=secondmate[[:space:]]*$' "$meta"
+}
+
 for status in "$STATE"/*.status; do
   [ -e "$status" ] || continue
   id=$(basename "$status" .status)
@@ -306,6 +322,9 @@ for status in "$STATE"/*.status; do
   fi
   if [ ! -r "$status" ]; then
     report "$id" "status file is not readable"
+    continue
+  fi
+  if is_parent_channel "$id"; then
     continue
   fi
   lint_status "$id" "$status"
