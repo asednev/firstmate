@@ -13,6 +13,10 @@
 #   writer create   - refuses to overwrite an existing record.
 #   writer create   - refuses a home that disagrees with the registry
 #                     line under the canonical path key.
+#   writer create   - home and registry are rechecked under the meta
+#                     lock: a retirement that holds the lock while
+#                     removing the home and the registry line refuses
+#                     the create, and nothing is published.
 #   writer update   - preserves every other line byte-for-byte (incl.
 #                     fields appended by later canonical writers),
 #                     rewrites muse_app_chat_id=, rotates spawn_gen=.
@@ -582,9 +586,38 @@ test_teardown_refuses_misshapen_muse_app_record() {
   pass "fm-teardown: a muse-app-claiming record that fails the record check is refused, nothing removed"
 }
 
+test_writer_create_refuses_when_retirement_intervenes() {
+  local mate_home main_home meta lock holder create_pid create_rc create_out
+  mate_home=$(make_mate_home mate-race)
+  main_home=$(make_main_home main-race eg1 "$mate_home")
+  meta="$main_home/state/eg1.meta"
+  lock=$(bash -c '. "$1/bin/fm-wake-lib.sh"; fm_meta_lock_path "$2"' _ "$ROOT" "$meta") \
+    || fail "could not resolve the meta lock path for the race fixture"
+  # A retirement holding the record's meta lock: it holds the lock while
+  # the mate's home and registry line are removed below, then releases.
+  bash -c '. "$1/bin/fm-wake-lib.sh"; fm_lock_acquire_wait "$2"; sleep 2; fm_lock_release "$2"' \
+    _ "$ROOT" "$lock" &
+  holder=$!
+  sleep 0.5
+  FM_HOME="$main_home" "$RECORD" create eg1 "$mate_home" chat-uuid-race \
+    > "$TMP_ROOT/race.out" 2>&1 &
+  create_pid=$!
+  sleep 0.5
+  rm -rf "$mate_home"
+  : > "$main_home/data/secondmates.md"
+  wait "$holder" || true
+  wait "$create_pid" && create_rc=0 || create_rc=$?
+  create_out=$(cat "$TMP_ROOT/race.out")
+  [ "$create_rc" -ne 0 ] \
+    || fail "writer create must refuse when a retirement removes the home and registry line while the writer waits for the lock: $create_out"
+  assert_absent "$meta" "writer create published a delivery record for a retired mate"
+  pass "writer create: home and registry rechecked under the meta lock; an intervening retirement refuses the create"
+}
+
 test_writer_create_exact_fields
 test_writer_create_refuses_overwrite
 test_writer_create_refuses_registry_disagreement
+test_writer_create_refuses_when_retirement_intervenes
 test_writer_update_preserves_and_rotates
 test_writer_update_refuses_wrong_expected_old
 test_writer_update_already_applied_is_noop

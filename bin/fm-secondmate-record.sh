@@ -40,6 +40,16 @@
 # (fm_meta_lock_path) through the canonical atomic-transition publish
 # (fm_backlog_atomic_transition publish, the same call fm-spawn.sh makes),
 # never by an in-place edit another reader can observe half-written.
+#
+# The mate-home and registry validations run under that same meta lock,
+# after it is acquired and before anything is staged: retirement holds
+# the meta lock while it removes the mate's home, registry line, and
+# record, so a validation read before the lock could pass against a home
+# that is gone by the time the lock is granted, and the writer would
+# publish a delivery record for a retired mate whose inbox no mate
+# watches. Validating under the lock serializes the check against the
+# retirement it must not outlive; the lock is then held through
+# publication, as the publish paragraph above states.
 set -eu
 
 # Print the header comment as usage before any home resolution, so the
@@ -124,8 +134,19 @@ case "$MATE_HOME_ARG" in
   /*) ;;
   *) die "mate home must be an absolute path: $MATE_HOME_ARG" ;;
 esac
-[ -d "$MATE_HOME_ARG" ] || die "mate home is not an existing directory: $MATE_HOME_ARG"
 [ -d "$STATE" ] || die "state dir '$STATE' is missing; fm-secondmate-record cannot write the record for FM_HOME '$FM_HOME'"
+
+META="$STATE/$ID.meta"
+META_LOCK=$(fm_meta_lock_path "$META") || die "could not resolve the record lock for $ID"
+fm_lock_acquire_wait "$META_LOCK" || die "could not lock the record for $ID"
+trap 'fm_lock_release "$META_LOCK" || true' EXIT
+
+# Everything the publication depends on is validated here, under the
+# meta lock: the mate home's existence and the registry line are read at
+# this point, never before the lock, so a retirement that held the lock
+# while removing the home, the registry line, and any prior record is
+# fully visible to the checks (see the header's lock paragraph).
+[ -d "$MATE_HOME_ARG" ] || die "mate home is not an existing directory: $MATE_HOME_ARG"
 
 # The registry is the routing authority and this writer is the comparison
 # that keeps the record agreeing with it on the routing path: read the
@@ -143,11 +164,6 @@ case "$REGISTRY_PROJECTS" in
 esac
 MATE_HOME=$(secondmate_registry_path_key "$MATE_HOME_ARG") \
   || die "mate home cannot be resolved to a canonical path: $MATE_HOME_ARG"
-
-META="$STATE/$ID.meta"
-META_LOCK=$(fm_meta_lock_path "$META") || die "could not resolve the record lock for $ID"
-fm_lock_acquire_wait "$META_LOCK" || die "could not lock the record for $ID"
-trap 'fm_lock_release "$META_LOCK" || true' EXIT
 
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 
