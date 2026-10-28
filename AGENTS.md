@@ -57,7 +57,7 @@ Use `gh-axi` for GitHub, `chrome-devtools-axi` for browser work, and compatible 
 
 `docs/configuration.md` is the single owner of the top-level operational-home layout and configuration schemas; each producing script's header and help own exact child fields and mutation mechanics.
 `FM_HOME` selects an instance's private `data/`, `state/`, `config/`, and `projects/`, while scripts continue to come from their tracked code root.
-A path that is a live home is never a clone, reset, or clean target; `docs/muse-app-backend.md` (Home state durability) owns that fence, its recognition test, and the rebuild-kit recovery that stands behind it.
+A path that is a live home is never a clone, reset, clean, or content-removal target; `docs/muse-app-backend.md` (Home state durability) owns that fence, its recognition test, and the rebuild-kit recovery that stands behind it.
 Each secondmate has a persistent isolated `FM_HOME`, including its own state, backlog, projects, and session lock.
 `bin/fm-send.sh` fails closed unless `FM_HOME` is explicit, so a steer cannot silently resolve against another home.
 
