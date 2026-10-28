@@ -26,15 +26,34 @@ A visible chat that cannot report into Firstmate's normal lifecycle is not a com
 ## Topology
 
 - `FM_HOME` lives under the VM's persistent workspace tree (`~/workspace/firstmate` on the reference VM).
-  Only the home tree survives VM replacement; `/tmp` and system paths are ephemeral.
-- State stays in-tree, where Firstmate already puts it.
-  A VM replacement is indistinguishable from a restart, and restart reconciliation is already Firstmate's contract.
+  The home tree and the captain's Muse memory store (`~/MEMORY.md`, `~/memory/`) survive VM replacement; `/tmp` and system paths are ephemeral.
+- State stays in-tree, where Firstmate already puts it; the one exception is a home's rebuild kit, a small record kept in the captain's Muse memory so a lost home can be re-founded.
+  A VM replacement is indistinguishable from a restart, and restart reconciliation is already Firstmate's contract; a home-tree loss is not a restart and is rebuilt under [Home state durability](#home-state-durability).
 - The captain's surface is the Muse chat, not a terminal.
   This is the GROK_BOT interaction model with the terminal machinery behind it.
 - Secrets never sit in the state tree.
   Per-crewmate credentials live in the platform vault; state records that a secret exists, never its value.
 - State writes are verified, not assumed.
   The host VM intermittently fails writes, so every lifecycle write is read back or retried, and wake-time reconciliation treats a torn write as an ordinary case.
+
+## Home state durability
+
+- A home's state is gitignored state inside a git clone, so the clone's tracked history protects none of it: a fresh clone, a reset, or a clean of the home path destroys the state by construction, as the 2026-10-27 re-clone of the main home demonstrated when it wiped that home's registry, config, backlog, and state tree while leaving every tracked file intact.
+- Prevention is a fence, not a hope: no actor clones into, resets, or cleans a path that is a live home, and work on this repository that needs a fresh checkout uses a scratch clone outside every home and lands through the ordinary PR path; a path is recognized as a live home by its `.fm-secondmate-home` marker where one exists, and otherwise by the presence of a home's runtime state - `data/`, `state/`, and `config/` content such as a secondmate registry or a backlog - inside a clone of this repository.
+- Operational state is not mirrored to memory: checkpoints, inbox and channel traffic, pending replies, and backlog bodies churn constantly, are re-derived or re-driven by ordinary reconciliation where they matter, and would bury a journal; what memory holds for each home is a rebuild kit - the few small facts a lost home cannot re-derive from what survives it.
+- The kit is declared under the canonical Memory layering contract, whose schema `docs/configuration.md` owns: the home's `data/captain.md` declares the Muse memory store as a tier for the single class `rebuild kit`, and captain-preference and knowledge classes stay local exactly as the operational-home-layout contract states.
+- The tier destination is the captain's Muse memory - the memory notes under `~/MEMORY.md` and `~/memory/` on the VM - which every Muse session serving the captain can reach and no firstmate tool, build, or checkout operation ever writes.
+- The kit is not the conversation memory the recovery contract sets aside: a kit entry is a contemporaneous copy written at the lifecycle act it records, the act's own record rather than a recollection recovered from conversation afterward, and AGENTS.md section 5's bar on recollection as authority is untouched by it.
+- A home's kit holds, verbatim: its secondmate registry lines as they stand in `data/secondmates.md`; each mate's endpoint record as published; the home's config values as set; each mate's doorbell facts - the hook id, the paths it watches, and the chat it delivers to; each mate's charter text as briefed at provisioning; and the declaration's own text.
+- The kit is captured whole, as one entry, at the rare acts that change its contents - a mate provisioned, rebound, or retired, a config value set, a charter amended - by the firstmate who performs the act, as part of that same act; there is no per-write journaling of operational state.
+- A kit entry carries the marker `fm-rebuild-kit`, the home's absolute path, the entry's write time in epoch seconds, and the write time of the declaration it was written under; entries are append-only, the latest entry for a home is its current kit, and an entry written under a newer declaration supersedes every earlier entry for that path, so a re-founded home never inherits a prior incarnation's kit.
+- Kit entries live in the dated memory logs (`~/memory/<date>.md`); the retention relied on - the dated notes kept as the full trail while curated summaries consolidate - is the memory platform's observed behavior, named as such rather than as a guarantee the fleet controls, and the curated `~/MEMORY.md` summary is not the kit and never substitutes for an entry.
+- Capture is agent discipline, as the canonical contract already assumes: no tool parses, validates, or enforces the declaration or the capture, and a lifecycle act whose actor skips the kit leaves the home exactly as exposed as it was before this section.
+- The kit is a rebuild source only: while a home's files exist they are authoritative, the kit is never read against them, and the authority rules already stated - the registry line as routing authority, the endpoint record as delivery authority - are untouched.
+- After a home-tree loss, the main firstmate rebuilds from the latest kit entry: it restores the config values verbatim, restores each registry line whose named mate home still exists, restores each endpoint record verbatim from the kit after it passes the record check the endpoint-record section assigns to teardown, verifies each mate's doorbell hook is live under `~/hooks` before routing resumes, and places the declaration's text in the rebuilt captain file and in the reconstruction report as a proposal, because the tier is operative again only when the captain re-declares or confirms it.
+- Routing to a rebuilt mate resumes only after the mate appends a fresh doorbell confirmation line to the rebuilt parent channel, which the firstmate requests through the mate's chat; the rebuilt channel starts empty, and no confirmation text is ever restored into it from the kit.
+- Everything outside the kit is rebuilt by the fleet's ordinary means or is lost, and the reconstruction report says which: project clones are re-cloned, the backlog and learnings are re-founded by the session-start absence handling and the captain's direction, in-flight sends are closed as lost against each mate's `handled/` records, and non-confirmation channel lines and checkpoint records are unrecoverable.
+- The rebuilt home reports the rebuild to the captain as a reconstruction, naming the kit entry used, the records restored, the registry lines refused because their mate home is gone, and the classes lost with the tree.
 
 ## Session layer
 
