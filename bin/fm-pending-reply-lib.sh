@@ -738,9 +738,9 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
 
 # Observe backend busy/idle evidence for the active turn without reading chat.
 # busy_state must be one of: busy | idle | unknown.
-fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state>
-  local state=$1 corr=$2 busy_state=$3
-  local rec phase delivered now seen completed field_seen field_completed
+fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state> [observation-token]
+  local state=$1 corr=$2 busy_state=$3 obs_token=${4-}
+  local rec phase delivered now seen completed field_seen field_completed anchor
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
   phase=$(fm_pending_reply_get "$rec" phase)
@@ -750,6 +750,18 @@ fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state>
   esac
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   [ -n "$delivered" ] || return 0
+  if [ "$phase" = awaiting_report ]; then
+    anchor=$delivered
+  else
+    anchor=$(fm_pending_reply_get "$rec" recovery_sent_epoch)
+  fi
+  # A caller that computed its observation against a specific turn passes
+  # that turn as "<phase>:<anchor-epoch>"; if the record has since moved
+  # to another turn (a peer scan sent the recovery, a resend re-anchored
+  # the request), the stale observation must not stamp the new turn.
+  if [ -n "$obs_token" ] && [ "$obs_token" != "$phase:$anchor" ]; then
+    return 0
+  fi
   if [ "$phase" = awaiting_report ]; then
     field_seen=turn_seen_busy
     field_completed=request_turn_completed_epoch
@@ -853,6 +865,88 @@ fm_pending_reply_busy_state_from_observation() {  # <record-path> <observation>
       ;;
     *) printf 'unknown' ;;
   esac
+}
+
+# A mate outcome line appended to the parent channel after <since-epoch>
+# evidences a completed mate turn. Channel lines carry their own [at=]
+# stamp, and this library's own appends - the keyed pending-reply
+# escalation and close lines - never count: the parent's machinery must
+# not manufacture the completion it is waiting for.
+fm_pending_reply_channel_mate_line_since() {  # <status-file> <since-epoch>
+  local file=$1 since=$2
+  [ -f "$file" ] || return 1
+  case "$since" in ''|*[!0-9]*) return 1 ;; esac
+  awk -v since="$since" '
+    /^(check|done|blocked) \[at=[0-9]+\]/ {
+      s = $0; sub(/^[^[]*\[at=/, "", s); sub(/[^0-9].*$/, "", s)
+      if ((s + 0) > (since + 0) && $0 !~ /key=pending-reply-/) { found = 1; exit }
+    }
+    END { exit(found ? 0 : 1) }' "$file"
+}
+
+# The mate consumed this request when the acknowledgement it filed under
+# state/<task_id>.inbox/handled/ is the record whose OWN marked header
+# carries this correlation. A later body line quoting the token - a
+# forwarded summary, a follow-up about the request - is not consumption,
+# the same provenance rule fm_pending_reply_try_resolve enforces.
+fm_pending_reply_ack_for_corr() {  # <state-dir> <task-id> <corr-id>
+  local state=$1 task_id=$2 corr=$3 dir msg marker
+  dir="$state/$task_id.inbox/handled"
+  [ -d "$dir" ] || return 1
+  for msg in "$dir"/*.msg; do
+    [ -f "$msg" ] || continue
+    marker=$(grep -a -m 1 '^\[fm-from-firstmate\]' "$msg" 2>/dev/null || true)
+    [ -n "$marker" ] || continue
+    if fm_pending_reply_text_has_corr "$marker" "$corr"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Turn-completion observation for a muse-app secondmate, whose endpoint
+# is a chat: there is no pane or terminal to read, so completion is
+# evidenced from the parent-side files a mate turn writes, under the
+# provenance rules of the two readers above: a mate outcome line
+# appended to the parent channel after the request was delivered (a
+# correlated answer among those appends resolves the record before
+# observation ever runs, so an append that leaves the record open is
+# another turn's outcome or a progress line), or the mate's inbox
+# acknowledgement for this correlation. With neither, the turn is
+# presumed complete once the muse-app turn bound
+# (FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS, default 1800) has elapsed
+# since delivery - or since the recovery send, for the recovery turn:
+# the presumption is what lets grace run at all for a mate that never
+# wakes, and the one repost it unlocks is the probe that separates a
+# slow mate from a dead one before escalation. Anything younger with no
+# evidence is unknown, and busy is never reported: no parent-side file
+# proves a chat turn is currently live.
+fm_pending_reply_muse_app_observation() {  # <record-path> <state-dir>
+  local rec=$1 state=$2
+  local phase since channel task_id corr bound now
+  phase=$(fm_pending_reply_get "$rec" phase)
+  case "$phase" in
+    awaiting_report) since=$(fm_pending_reply_get "$rec" delivered_epoch) ;;
+    recovery_sent) since=$(fm_pending_reply_get "$rec" recovery_sent_epoch) ;;
+    *) printf 'unknown'; return 0 ;;
+  esac
+  case "$since" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
+  channel=$(fm_pending_reply_get "$rec" parent_status)
+  if [ -n "$channel" ] && fm_pending_reply_channel_mate_line_since "$channel" "$since"; then
+    printf 'idle'; return 0
+  fi
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  corr=$(fm_pending_reply_get "$rec" corr_id)
+  if [ -n "$task_id" ] && [ -n "$corr" ] && fm_pending_reply_ack_for_corr "$state" "$task_id" "$corr"; then
+    printf 'idle'; return 0
+  fi
+  bound=${FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS:-1800}
+  case "$bound" in ''|*[!0-9]*) bound=1800 ;; esac
+  now=$(fm_pending_reply_now)
+  if [ $((now - since)) -ge "$bound" ]; then
+    printf 'idle'; return 0
+  fi
+  printf 'unknown'
 }
 
 # Explicit turn-completion proof (for tests and turn-end backends that surface
@@ -1457,8 +1551,8 @@ fm_pending_reply_restatement_copy_same_basename() {  # <state-dir> <corr_id> <se
 # One reconciliation tick for a single record: resolve, observe, recover, escalate.
 # busy_state is busy|idle|unknown for the secondmate endpoint.
 # secondmate_home may be empty when unknown.
-fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-home]
-  local state=$1 corr=$2 busy_state=$3 sm_home=${4-}
+fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-home] [observation-token]
+  local state=$1 corr=$2 busy_state=$3 sm_home=${4-} obs_token=${5-}
   local rec phase delivered
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
@@ -1509,7 +1603,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
     fm_pending_reply_detect_wrong_home "$state" "$corr" "$sm_home" || true
     fm_pending_reply_restatement_copy_same_basename "$state" "$corr" "$sm_home" || true
   fi
-  fm_pending_reply_observe_busy "$state" "$corr" "$busy_state" || true
+  fm_pending_reply_observe_busy "$state" "$corr" "$busy_state" "$obs_token" || true
   # Re-check resolve after observation in case a concurrent status write landed.
   if fm_pending_reply_try_resolve "$state" "$corr"; then
     return 0
@@ -1561,7 +1655,7 @@ _fm_pending_reply_select_needing_work() {  # <record-path>...
 # unchanged, only for the records that selection returns.
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness remote_host
-  local observation observation_task found i
+  local observation observation_task found i anchor obs_token
   local -a observation_tasks=() observation_values=() records=() selected=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
@@ -1641,6 +1735,7 @@ fm_pending_reply_tick() {  # <state-dir>
     backend=tmux
     target=
     busy=unknown
+    obs_token=
     sm_home=
     harness=
     if [ -f "$meta" ]; then
@@ -1653,7 +1748,22 @@ fm_pending_reply_tick() {  # <state-dir>
         target="remote:$task_id"
         sm_home=
       fi
-      if [ -n "$target" ]; then
+      if [ "$backend" = muse-app ] && [ -z "$remote_host" ]; then
+        # A chat endpoint has no target to observe: completion comes
+        # from the parent-side evidence reader instead, and it is
+        # per-record (keyed to the record's own delivery), so it
+        # bypasses the per-task observation cache below. The token
+        # binds the observation to the turn it was computed against,
+        # so a peer scan's phase change cannot make it stamp the
+        # next turn (see fm_pending_reply_observe_busy).
+        observation=$(fm_pending_reply_muse_app_observation "$rec" "$state")
+        busy=$(fm_pending_reply_busy_state_from_observation "$rec" "$observation")
+        anchor=$(fm_pending_reply_get "$rec" delivered_epoch)
+        if [ "$phase" = recovery_sent ]; then
+          anchor=$(fm_pending_reply_get "$rec" recovery_sent_epoch)
+        fi
+        obs_token="$phase:$anchor"
+      elif [ -n "$target" ]; then
         label="fm-$task_id"
         observation=
         found=0
@@ -1678,7 +1788,7 @@ fm_pending_reply_tick() {  # <state-dir>
         busy=$(fm_pending_reply_busy_state_from_observation "$rec" "$observation")
       fi
     fi
-    fm_pending_reply_tick_one "$state" "$corr" "$busy" "$sm_home" || true
+    fm_pending_reply_tick_one "$state" "$corr" "$busy" "$sm_home" "$obs_token" || true
   done
   return 0
 }

@@ -68,7 +68,8 @@ Arm a second hook per wait whose checkpoint carries expectation fields: the sile
 It polls the same status file against the checkpoint's expectation fields and wakes the primary once when `expected_first_check` passes with no `check:` line yet, or when `expected_terminal` passes with no terminal line.
 On that wake the primary reconciles from the state tree: steer the endpoint, extend the expectation in the checkpoint with a reason, or relay the stale wait to the captain.
 The watchdog never re-dispatches anything itself, and it disables itself when it fires, like the terminal wake.
-`bin/fm-record-lint.sh` validates a state tree's status lines, checkpoint closures, and open-checkpoint fields against that contract at reconciliation points (bearings, stow, session start).
+`bin/fm-record-lint.sh` validates a state tree's status lines, checkpoint closures, and open-checkpoint fields against that contract at reconciliation points (bearings, stow, session start); a secondmate's parent channel is not a task record, so the linter identifies it by its sibling endpoint record's `kind=` field, read by its last value the way the fleet reads meta fields, and exempts it from those checks.
+The same reconciliation points run `bin/fm-pending-reply-scan.sh` over the home's state tree, so a marked request a mate never answered reaches its one repost and, if that turn is also missed, its escalation, instead of waiting on a watcher this backend does not run.
 
 ## Handle a wake
 

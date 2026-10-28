@@ -6,7 +6,11 @@
 # correction, a superseded closure with and without its resolver, and the
 # violation shapes the validator exists to catch - handled on a blocked
 # terminal, handled twice, a status line after the terminal line, and a
-# done: wait that was never closed.
+# done: wait that was never closed. A secondmate's parent channel (a
+# .status file whose sibling endpoint record carries kind=secondmate)
+# is a fixture of its own: a normal channel with a doorbell confirmation
+# and repeated outcomes lints clean, and the same content without the
+# endpoint record is linted as a task record and fails.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -138,6 +142,63 @@ state: open"
   lint "$dir"
   expect_code 0 "$LINT_CODE" "subagent with existing report"
   pass "an open subagent checkpoint whose report file exists passes"
+}
+
+write_mate_channel() {  # <state-dir>: a normal secondmate parent channel + its endpoint record
+  local dir=$1
+  printf '%s\n' \
+    'check [at=1793201535]: doorbell registered - hook eg1-doorbell watches main-home state/eg1.inbox and mate-home state/, delivery to second: eg1 chat' \
+    'done [at=1793201833]: corr=e1cd757bc5944c14 live proof of rebuilt route - in-flight count 0 (crew surface: subagent)' \
+    'check [at=1793202000]: doorbell re-registered after hook reload' \
+    'done [at=1793202600]: corr=abcd1234abcd1234 quarterly plan drafted; report at data/eg1-plan/report.md (crew surface: subagent)' \
+    'blocked [at=1793203200]: corr=beef5678beef5678 waiting on the captain ear gate for the migrated clips (crew surface: subagent)' \
+    > "$dir/eg1.status"
+  printf '%s\n' \
+    'kind=secondmate' \
+    'backend=muse-app' \
+    'muse_app_chat_id=e4624e4a-0fbc-4b08-9340-2b6f9c884581' \
+    'endpoint_task_id=eg1' \
+    'worktree=/home/fixture/firstmate-homes/eg1' \
+    'project=/home/fixture/firstmate-homes/eg1' \
+    'home=/home/fixture/firstmate-homes/eg1' \
+    'projects=eg1' \
+    'mode=secondmate' \
+    'yolo=off' \
+    'harness=muse' \
+    'spawn_gen=s1793201554.2407237.11552' \
+    > "$dir/eg1.meta"
+}
+
+test_mate_parent_channel_passes() {
+  local dir; dir=$(make_state mate-channel)
+  write_mate_channel "$dir"
+  lint "$dir"
+  expect_code 0 "$LINT_CODE" "a healthy secondmate parent channel must lint clean: $LINT_OUTPUT"
+  assert_contains "$LINT_OUTPUT" "clean" "parent channel tree reports clean"
+  pass "a secondmate parent channel (doorbell confirmation, repeated outcomes, no checkpoint) lints clean"
+}
+
+test_channel_without_record_fails_as_task() {
+  local dir; dir=$(make_state channel-no-record)
+  write_mate_channel "$dir"
+  rm "$dir/eg1.meta"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "channel content without an endpoint record is linted as a task record"
+  assert_contains "$LINT_OUTPUT" "status file has no checkpoint" "the crewmate checks name the missing checkpoint"
+  pass "the same channel content without a kind=secondmate endpoint record is linted as a task record"
+}
+
+test_channel_with_duplicate_kind_last_not_secondmate_fails() {
+  local dir; dir=$(make_state channel-dup-kind)
+  write_mate_channel "$dir"
+  # The fleet reads a meta field by its last value (fm_meta_get): a
+  # record whose last kind= line names a task kind is not a parent
+  # channel, even with an earlier kind=secondmate line in the file.
+  printf 'kind=ship\n' >> "$dir/eg1.meta"
+  lint "$dir"
+  expect_code 1 "$LINT_CODE" "a record whose last kind= is a task kind does not exempt its channel"
+  assert_contains "$LINT_OUTPUT" "status file has no checkpoint" "the duplicate-kind channel is linted as a task record"
+  pass "the parent-channel classification reads the endpoint record's kind= by its last value"
 }
 
 test_closure_deferred_passes() {
@@ -796,3 +857,6 @@ test_impossible_date_fails
 test_tabbed_deferral_reason_passes
 test_symlinked_data_dir_passes
 test_symlinked_task_dir_escape_fails
+test_mate_parent_channel_passes
+test_channel_without_record_fails_as_task
+test_channel_with_duplicate_kind_last_not_secondmate_fails
