@@ -120,6 +120,23 @@
 # without creating a reply expectation; its delivery id makes uncertain retries
 # idempotent while allowing a later identical instruction to be distinct.
 #
+# Muse-app secondmate records (docs/muse-app-backend.md, "The endpoint
+# record"): a record carrying backend=muse-app with kind=secondmate resolves
+# its delivery target from muse_app_chat_id=, in this script only - the
+# shared backend target readers are unchanged, and a muse-app record with
+# no chat id does not resolve. Validation after resolution accepts
+# muse-app for that record, reading kind= from the resolved record. Two
+# paths never apply to it, each an explicit check at its site: a steer
+# beginning with "/" refuses at the head of the text-steer path, before
+# the marking block creates the pending-reply expectation, so a refused
+# steer arms no expectation (a fire-and-forget steer is exempt - the inbox
+# plane carries it as chat text), and --key refuses inside the key branch
+# ahead of its dispatch. Every other steer rides the inbox plane; the
+# final delivery revalidation re-reads the chat id under the record lock,
+# and no doorbell ring is attempted - the doorbell hook watching the inbox
+# is this backend's wake - so the skip reports success to the send's
+# bookkeeping, with no retry ring armed and no did-not-reach notice.
+#
 # Remote secondmate delivery: the send crosses fm-on.sh to a host-local leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) that writes the message as a
 # durable record into the remote home's steering inbox and rings the remote
@@ -344,7 +361,7 @@ fm_send_count_colons() { # <string>
 }
 
 fm_send_resolve_target() { # <raw-target>
-  local raw=$1 meta pane_meta target backend assumed colons id session hint
+  local raw=$1 meta pane_meta target backend assumed colons id session hint muse_chat
 
   RESOLVED_TARGET=""
   TARGET_BACKEND=""
@@ -372,6 +389,33 @@ fm_send_resolve_target() { # <raw-target>
       return 0
     fi
     RESOLUTION_TRIED="meta=$meta; backend=from-meta"
+    backend=$(fm_backend_of_meta "$meta")
+    if [ "$backend" = muse-app ]; then
+      # The muse-app secondmate case (docs/muse-app-backend.md, "The
+      # endpoint record"): a record carrying backend=muse-app with
+      # kind=secondmate resolves its delivery target from
+      # muse_app_chat_id=, here in fm-send only - the shared backend target
+      # readers keep the windowless view of this record. A muse-app record
+      # with no chat id does not resolve.
+      if [ "$(fm_meta_get "$meta" kind)" = secondmate ]; then
+        muse_chat=$(fm_meta_get "$meta" muse_app_chat_id)
+        if [ -z "$muse_chat" ]; then
+          echo "error: no delivery target recorded in $meta: the muse-app secondmate record names no muse_app_chat_id (tried $RESOLUTION_TRIED)" >&2
+          return 1
+        fi
+        id=$(fm_send_id_from_meta "$meta")
+        RESOLVED_TARGET=$muse_chat
+        TARGET_BACKEND=muse-app
+        TARGET_META=$meta
+        TARGET_HARNESS=$(fm_meta_get "$meta" harness)
+        EXPECTED_LABEL="fm-$id"
+        TARGET_SELECTOR=1
+        RESOLUTION_TRIED="meta=$meta; backend=muse-app; target=muse_app_chat_id"
+        return 0
+      fi
+      echo "error: no backend target recorded in $meta (tried $RESOLUTION_TRIED)" >&2
+      return 1
+    fi
     target=$(fm_backend_target_of_meta "$meta")
     if [ -z "$target" ]; then
       echo "error: no backend target recorded in $meta (tried $RESOLUTION_TRIED)" >&2
@@ -525,7 +569,19 @@ while :; do
   esac
 done
 
-if [ "$TARGET_BACKEND" != remote ]; then
+if [ "$TARGET_BACKEND" = muse-app ]; then
+  # Backend validation learns the muse-app boundary at the same place
+  # resolution did (docs/muse-app-backend.md, "The endpoint record"):
+  # fm-send accepts muse-app after resolution only for a secondmate
+  # record, reading kind= from the resolved record because resolution
+  # exposes no kind of its own. The shared known-backend and
+  # spawnable-backend lists are unchanged, so every other validation
+  # caller keeps refusing the value and no launch path opens.
+  if [ -z "$TARGET_META" ] || [ "$(fm_meta_get "$TARGET_META" kind)" != secondmate ]; then
+    echo "error: backend 'muse-app' is accepted only for a secondmate endpoint record (record: ${TARGET_META:-none})" >&2
+    exit 1
+  fi
+elif [ "$TARGET_BACKEND" != remote ]; then
   fm_backend_validate "$TARGET_BACKEND" || exit 1
 fi
 
@@ -765,6 +821,13 @@ fm_send_feed_resolved_holds() { # <answer-text>
 # error with the attempted resolution attached.
 
 if [ "${1:-}" = "--key" ]; then
+  if [ "$TARGET_BACKEND" = muse-app ]; then
+    # A muse-app mate has no endpoint a keystroke can reach (docs/
+    # muse-app-backend.md, "The endpoint record"): --key refuses inside
+    # the key branch, ahead of its dispatch.
+    echo "error: --key cannot be sent to muse-app secondmate $(fm_send_id_from_meta "$TARGET_META"): this backend has no terminal endpoint for keystrokes; steer it with a text message instead" >&2
+    exit 1
+  fi
   [ -z "$FIRE_AND_FORGET_ID" ] ||
     {
       echo "error: --fire-and-forget cannot accompany --key" >&2
@@ -815,6 +878,22 @@ else
   # The pre-marker answer text, kept for the closing resolved note so the
   # durable ledger records the plain answer without marker or corr bytes.
   RESOLVE_ANSWER_TEXT=$MESSAGE
+  if [ "$TARGET_BACKEND" = muse-app ] && [ -z "$FIRE_AND_FORGET_ID" ]; then
+    # The parser-native carve-out refuses at the head of the text-steer
+    # path (docs/muse-app-backend.md, "The endpoint record"): the
+    # pre-marker text is set aside above, and the marking block below has
+    # not yet created the pending-reply expectation, so a refused steer
+    # arms no expectation. A muse-app mate's harness never sees a steer as
+    # a parser command - it arrives as chat text - so a slash steer would
+    # silently not execute. A fire-and-forget steer is exempt: the inbox
+    # plane carries it as chat text, exactly as it does to a launched mate.
+    case "$RESOLVE_ANSWER_TEXT" in
+    /*)
+      echo "error: a steer beginning with '/' cannot be sent to muse-app secondmate $TARGET_TASK_ID: on this backend a steer reaches the mate as chat text, never as a parser command, so the invocation would not execute; nothing was sent and no reply expectation was armed" >&2
+      exit 1
+      ;;
+    esac
+  fi
   if [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
@@ -1025,9 +1104,15 @@ else
     CURRENT_INBOX_BACKEND=
     CURRENT_INBOX_SPAWN_GEN=
     if [ -f "$TARGET_META" ]; then
-      CURRENT_INBOX_TARGET=$(fm_backend_target_of_meta "$TARGET_META")
+      CURRENT_INBOX_TARGET=$(fm_backend_target_of_meta "$TARGET_META" || true)
       CURRENT_INBOX_BACKEND=$(fm_backend_of_meta "$TARGET_META")
       CURRENT_INBOX_SPAWN_GEN=$(fm_meta_get "$TARGET_META" spawn_gen)
+      if [ "$CURRENT_INBOX_BACKEND" = muse-app ]; then
+        # The muse-app resolution case governs the final delivery
+        # revalidation too: the target is re-read from muse_app_chat_id=
+        # under the record lock, here in fm-send only.
+        CURRENT_INBOX_TARGET=$(fm_meta_get "$TARGET_META" muse_app_chat_id)
+      fi
     fi
     if [ "$CURRENT_INBOX_TARGET" != "$T" ] ||
       [ "$CURRENT_INBOX_BACKEND" != "$TARGET_BACKEND" ] ||
@@ -1089,8 +1174,14 @@ else
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
     # bounded re-ring ladder or direct unavailable-endpoint recovery.
+    # A muse-app mate attempts no ring at all: the doorbell hook watching
+    # its inbox is this backend's wake and retry alike, so the skip reports
+    # success to this send's bookkeeping (ring_rc stays 0 - no retry ring
+    # is armed and no did-not-reach notice prints).
     ring_rc=0
-    fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
+    if [ "$TARGET_BACKEND" != muse-app ]; then
+      fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
+    fi
     ring_retry="the watcher will re-ring"
     if [ -n "$FIRE_AND_FORGET_ID" ] \
       && [ -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/wait-no-turns" ]; then
