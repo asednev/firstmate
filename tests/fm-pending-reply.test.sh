@@ -2046,6 +2046,7 @@ test_same_kind_escalation_reopens_after_operator_close() {
     home=$(setup_parent same-kind)
     state="$home/state"
     fm_write_secondmate_meta "$state/mate.meta" "$home/sm" "sess:fm-mate"
+    # shellcheck disable=SC2030 # This test body runs in a subshell by design; the clock export is local to it.
     export FM_PENDING_REPLY_NOW=10000
     corr=$(fm_pending_reply_create "$home" "$state" mate "wake after lost transport")
     status="$state/mate.status"
@@ -2154,6 +2155,7 @@ test_muse_app_evidence_recovers_then_escalates() {
   export FM_PENDING_REPLY_SEND_HOOK='muse_app_hook'
   export FM_PENDING_REPLY_MUSE_APP_TURN_BOUND_SECS=1800
   now0=$(date +%s)
+  # shellcheck disable=SC2031 # The clock is re-exported per phase of this test in the main shell.
   export FM_PENDING_REPLY_NOW=$now0
   corr=$(fm_pending_reply_create "$home" "$state" "eg1" "status of the migration")
   fm_pending_reply_mark_delivered "$state" "$corr" "$now0"

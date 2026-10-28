@@ -1711,7 +1711,7 @@ fm_pending_reply_tick() {  # <state-dir>
         target="remote:$task_id"
         sm_home=
       fi
-      if [ "$backend" = muse-app ]; then
+      if [ "$backend" = muse-app ] && [ -z "$remote_host" ]; then
         # A chat endpoint has no target to observe: completion comes
         # from the parent-side evidence reader instead, and it is
         # per-record (keyed to the record's own delivery), so it
