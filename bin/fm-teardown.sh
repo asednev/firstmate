@@ -716,11 +716,21 @@ if [ "$(fm_meta_get "$META" backend)" = muse-app ] && [ "$TEARDOWN_META_KIND" = 
     if [ "$TEARDOWN_MUSE_APP_COUNT" != 1 ]; then
       TEARDOWN_MUSE_APP_SHAPE_OK=0
     fi
-    # projects= alone may be empty: a project-less mate's registry list is.
-    if [ "$TEARDOWN_MUSE_APP_KEY" != projects ] \
-      && [ -z "$(fm_meta_get "$META" "$TEARDOWN_MUSE_APP_KEY")" ]; then
-      TEARDOWN_MUSE_APP_SHAPE_OK=0
-    fi
+    # Presence exactly once is the check for the descriptive fields
+    # (projects, mode, yolo, harness, spawn_gen): readers take the named
+    # fields as they find them, so an empty value there does not fail the
+    # record. The remaining fields carry value conditions of their own -
+    # kind/backend through the classification above, muse_app_chat_id
+    # naming the bound chat, endpoint_task_id naming this mate (checked
+    # below), and the three home fields (checked below).
+    case "$TEARDOWN_MUSE_APP_KEY" in
+      projects|mode|yolo|harness|spawn_gen) ;;
+      *)
+        if [ -z "$(fm_meta_get "$META" "$TEARDOWN_MUSE_APP_KEY")" ]; then
+          TEARDOWN_MUSE_APP_SHAPE_OK=0
+        fi
+        ;;
+    esac
   done
   if [ "$(fm_meta_get "$META" endpoint_task_id)" != "$ID" ]; then
     TEARDOWN_MUSE_APP_SHAPE_OK=0

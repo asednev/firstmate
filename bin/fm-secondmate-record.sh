@@ -179,15 +179,16 @@ if [ "$MODE" = create ]; then
   exit 0
 fi
 
-# update: the record must exist and carry the muse-app secondmate shape
-# this writer owns; anything else is not a binding this mode may rewrite.
+# update: the record must exist and carry exactly one chat id line; the
+# binding questions come before any shape question, in the spec's order -
+# an update that finds the intended chat already recorded is already
+# applied, not an error, whatever else the record carries, and a current
+# binding that is not the expected old one refuses. Only a caller whose
+# binding checks pass reaches the shape probes guarding the write itself.
 [ -f "$META" ] && [ ! -L "$META" ] \
   || die "no endpoint record at $META; nothing to rebind (create it first)"
 CURRENT_CHAT=$(record_field_exact "$META" muse_app_chat_id) \
   || die "endpoint record at $META does not carry exactly one muse_app_chat_id=; refusing to rebind a record this writer did not shape"
-[ "$(record_field_exact "$META" backend || true)" = muse-app ] \
-  && [ "$(record_field_exact "$META" kind || true)" = secondmate ] \
-  || die "endpoint record at $META is not a muse-app secondmate record; refusing to rebind it"
 if [ "$CURRENT_CHAT" = "$NEW_CHAT_ID" ]; then
   printf 'endpoint record for secondmate %s already names chat %s; already applied, nothing written\n' \
     "$ID" "$NEW_CHAT_ID"
@@ -195,6 +196,9 @@ if [ "$CURRENT_CHAT" = "$NEW_CHAT_ID" ]; then
 fi
 [ "$CURRENT_CHAT" = "$EXPECTED_OLD" ] \
   || die "endpoint record for $ID names chat '$CURRENT_CHAT', not the expected old binding '$EXPECTED_OLD'; refusing the rebind - re-read the record against the mate's latest parent-channel confirmation and retry against the fresh value"
+[ "$(record_field_exact "$META" backend || true)" = muse-app ] \
+  && [ "$(record_field_exact "$META" kind || true)" = secondmate ] \
+  || die "endpoint record at $META is not a muse-app secondmate record; refusing to rebind it"
 
 STAGED="$STATE/.$ID.meta.record.${BASHPID:-$$}"
 awk -v chat="$NEW_CHAT_ID" -v gen="$SPAWN_GEN" '

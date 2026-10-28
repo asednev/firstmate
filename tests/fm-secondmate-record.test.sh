@@ -19,7 +19,8 @@
 #   writer update   - refuses on a wrong expected-old binding and
 #                     writes nothing.
 #   writer update   - already-applied (new chat already recorded) is a
-#                     no-op success.
+#                     no-op success, answered on the chat id alone ahead
+#                     of any kind=/backend= shape probe.
 #   writer update   - repeats the registry/home agreement check.
 #   fm-send         - a marked send to a muse-app record succeeds on the
 #                     inbox plane: durable inbox record with marker and
@@ -44,8 +45,10 @@
 #                     fm-ff-lib.
 #   fm-teardown     - accepts a conforming muse-app record and retires
 #                     the mate end to end (registry line, home, record
-#                     removed); refuses a muse-app-claiming record that
-#                     fails the record check (a window field added).
+#                     removed); accepts empty descriptive fields (mode,
+#                     yolo, harness, spawn_gen - presence exactly once is
+#                     their check); refuses a muse-app-claiming record
+#                     that fails the record check (a window field added).
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -222,6 +225,30 @@ test_writer_update_already_applied_is_noop() {
   cmp -s "$TMP_ROOT/applied-before.meta" "$meta" \
     || fail "already-applied update wrote the record (spawn_gen rotated or lines changed)"
   pass "writer update: intended chat already recorded is already-applied success, no write"
+}
+
+test_writer_update_already_applied_ignores_shape() {
+  local mate_home main_home meta
+  mate_home=$(make_mate_home mate-applied-shape)
+  main_home=$(make_main_home main-applied-shape eg1 "$mate_home")
+  seed_record_with_appends "$main_home" "$mate_home"
+  meta=$SEED_META
+  # Strip the shape lines the writer's own write path probes. The
+  # already-applied answer depends only on the record's current chat id
+  # (the spec's update contract keys on the binding alone), so it must
+  # still answer success here, ahead of any kind=/backend= probe.
+  grep -v -e '^kind=' -e '^backend=' "$meta" > "$TMP_ROOT/applied-shape-stripped.meta"
+  cp "$TMP_ROOT/applied-shape-stripped.meta" "$meta"
+  cp "$meta" "$TMP_ROOT/applied-shape-before.meta"
+  run_record "$main_home" update eg1 "$mate_home" chat-something-else chat-old-0001
+  expect_code 0 "$RECORD_RC" "already-applied update must not gate on kind/backend shape: $RECORD_OUT"
+  case "$RECORD_OUT" in
+    *"already applied"*) ;;
+    *) fail "already-applied update did not report already applied: $RECORD_OUT" ;;
+  esac
+  cmp -s "$TMP_ROOT/applied-shape-before.meta" "$meta" \
+    || fail "already-applied update (shape stripped) still wrote the record"
+  pass "writer update: already-applied answers on the chat id alone, no shape gate, no write"
 }
 
 test_writer_update_repeats_registry_check() {
@@ -527,6 +554,23 @@ test_teardown_retires_muse_app_mate() {
   pass "fm-teardown: a muse-app mate retires end to end (registry line, home, record removed)"
 }
 
+test_teardown_tolerates_empty_descriptive_fields() {
+  make_teardown_world empties
+  # The descriptive named fields (mode, yolo, harness, spawn_gen) are
+  # checked for presence exactly once; readers take the named fields as
+  # they find them, so empty values do not fail teardown's record check.
+  local meta="$TD_MAIN/state/smoke.meta"
+  sed -e 's/^mode=.*/mode=/' -e 's/^yolo=.*/yolo=/' \
+      -e 's/^harness=.*/harness=/' -e 's/^spawn_gen=.*/spawn_gen=/' \
+      "$meta" > "$TMP_ROOT/empties.meta"
+  cp "$TMP_ROOT/empties.meta" "$meta"
+  run_teardown "$TD_MAIN"
+  expect_code 0 "$TD_RC" "teardown must accept empty descriptive fields: $TD_OUT"
+  assert_absent "$TD_MATE" "teardown did not remove the mate home (empty descriptive fields)"
+  assert_absent "$TD_MAIN/state/smoke.meta" "teardown did not remove the record (empty descriptive fields)"
+  pass "fm-teardown: empty descriptive fields (mode/yolo/harness/spawn_gen) do not fail the record check"
+}
+
 test_teardown_refuses_misshapen_muse_app_record() {
   make_teardown_world misshapen
   # A window field makes the record fail teardown's muse-app record check.
@@ -544,6 +588,7 @@ test_writer_create_refuses_registry_disagreement
 test_writer_update_preserves_and_rotates
 test_writer_update_refuses_wrong_expected_old
 test_writer_update_already_applied_is_noop
+test_writer_update_already_applied_ignores_shape
 test_writer_update_repeats_registry_check
 test_send_marked_success_no_ring
 test_send_slash_refusal_arms_no_expectation
@@ -552,4 +597,5 @@ test_send_fire_and_forget_slash_rides_inbox
 test_send_no_chat_id_does_not_resolve
 test_consumer_sweep
 test_teardown_retires_muse_app_mate
+test_teardown_tolerates_empty_descriptive_fields
 test_teardown_refuses_misshapen_muse_app_record
