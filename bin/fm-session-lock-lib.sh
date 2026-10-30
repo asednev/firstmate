@@ -359,6 +359,32 @@ EOF
 # A tagged Windows pid is answered from the Windows process table, because
 # kill -0 cannot see across that boundary and would report a live harness as
 # dead - which would hand a running session's home to a second one.
+# True when home dir $1 is declared a muse-app home: its own
+# config/backend reads exactly `muse-app`, or it carries a secondmate-home
+# marker whose recorded parent home declares that backend. A muse-app
+# session has no harness process by design (hosted conversation, no CLI,
+# no spawnable process, no ancestry to walk), so the process-ancestry lock
+# cannot apply to such a home; exclusivity rests on its endpoint binding,
+# as docs/muse-app-backend.md states. This predicate never widens the
+# process rule: a missing, unreadable, or non-muse-app backend, a marker
+# without a muse-app parent, or a relative parent path all fail closed to
+# the process check.
+fm_home_is_muse_app() {  # <home>
+  local home=$1 backend parent_home
+  [ -n "$home" ] || return 1
+  backend=$(cat "$home/config/backend" 2>/dev/null || true)
+  [ "$backend" = muse-app ] && return 0
+  [ -f "$home/.fm-secondmate-home" ] || return 1
+  parent_home=$(sed -n 's/^parent_home=//p' "$home/.fm-secondmate-parent" 2>/dev/null | head -n 1)
+  parent_home=${parent_home%$'\r'}
+  case "$parent_home" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  backend=$(cat "$parent_home/config/backend" 2>/dev/null || true)
+  [ "$backend" = muse-app ]
+}
+
 fm_harness_pid_alive() {
   local pid=$1 comm args winpid
   if winpid=$(fm_win_untag_pid "$pid"); then
