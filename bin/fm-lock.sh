@@ -36,6 +36,30 @@
 # the sidecar, as for a line 1 in the ancestry, and a later acquisition
 # re-anchors.
 #
+# Muse-app homes have no harness process by design: a Muse-app session is a
+# hosted conversation with no CLI, no spawnable process, and no ancestry to
+# walk, so the process lock cannot apply to them and failing it would leave
+# every muse-app session read-only forever. For a home declared muse-app
+# (config/backend, or a secondmate-home marker under a muse-app parent, per
+# fm_home_is_muse_app in bin/fm-session-lock-lib.sh) acquisition succeeds
+# WITHOUT writing state/.lock or the sidecar: there is no pid to record,
+# and a fabricated pid would corrupt every reader that takes line 1 as a
+# pid. Exclusivity for such a home rests on its endpoint binding (exactly
+# one bound chat per mate, archival stopping retired chats, firstmate
+# routing only to the bound chat), as docs/muse-app-backend.md states.
+# Two guards keep this from widening the process rule: a home that is not
+# declared muse-app falls through to the anchor check unchanged, and a
+# muse-app acquire still refuses while a live process lock is held,
+# leaving a stale or malformed lock line in place rather than rewriting
+# what it does not own. Status for a muse-app home names the binding rule
+# instead of reporting a process lock as free, unless a live process lock
+# is held, which status reports as held like any other home. Ruled out: matching the
+# runtime cell supervisor (hatch-execd) in the ancestry would pass for
+# every chat's tool shell and is fail-open, not an identity; the
+# runtime-published JARVIS_SESSION_ID has unverified semantics (per-chat
+# vs per-VM unestablished, no liveness story, env-inheritance weakness)
+# and cannot anchor a lock rule from this repository.
+#
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0.
 #                             A held lock is not proof the holder is consuming
@@ -61,6 +85,15 @@ mkdir -p "$STATE" 2>/dev/null || {
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 if [ "${1:-}" = "status" ]; then
+  if fm_home_is_muse_app "$FM_HOME"; then
+    fm_session_lock_inspect "$STATE"
+    if [ "$FM_LOCK_INSPECT_STATE" = held ]; then
+      echo "lock: held by live harness pid $FM_LOCK_INSPECT_PID"
+      exit 0
+    fi
+    echo "lock: muse-app session (no process lock; exclusivity via endpoint binding)"
+    exit 0
+  fi
   fm_session_lock_inspect "$STATE"
   case "$FM_LOCK_INSPECT_STATE" in
     free) echo "lock: free" ;;
@@ -68,6 +101,21 @@ if [ "${1:-}" = "status" ]; then
     held) echo "lock: held by live harness pid $FM_LOCK_INSPECT_PID" ;;
     *) echo "lock: stale (pid $FM_LOCK_INSPECT_PID dead or not a harness)" ;;
   esac
+  exit 0
+fi
+
+# Muse-app homes take the binding rule, not the process rule (see header).
+# This branch runs before the anchor check because the anchor cannot
+# resolve for a hosted session at all; it must not run after it.
+if fm_home_is_muse_app "$FM_HOME"; then
+  if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
+    old=$(cat "$LOCK" 2>/dev/null || true)
+    if [ -n "$old" ] && fm_harness_pid_alive "$old"; then
+      echo "error: another live firstmate session holds the lock (pid $old); operate read-only until resolved" >&2
+      exit 1
+    fi
+  fi
+  echo "lock: muse-app session (no process lock; exclusivity via endpoint binding)"
   exit 0
 fi
 

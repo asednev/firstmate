@@ -1592,3 +1592,205 @@ test_failed_lock_write_removes_new_sidecar_when_none_existed
 test_verified_reclaim_keeps_new_sidecar
 test_reanchor_keeps_task_leases_live
 test_reanchor_keeps_autoarm_midturn_healthy
+
+# --- muse-app homes: no harness process exists by design -------------------
+# A Muse-app session is a hosted conversation: its tool shells run as
+# bash under the runtime cell supervisor (hatch-execd, PPid 0), and no
+# process in that ancestry identifies the session. The process lock
+# therefore cannot apply to a declared muse-app home, and failing it
+# would leave every muse-app session read-only forever. These cases
+# drive the real bin/fm-lock.sh (not the lib alone): the positives run
+# under the suite's own real ancestry, and the negatives shadow ps with
+# the deterministic muse-app worker shape (bash -> hatch-execd -> 0) so
+# the anchor failure is guaranteed whatever runs the suite.
+
+# Deterministic muse-app worker process table for the negative cases.
+muse_app_fake_ps() {  # <fakebin>
+  cat > "$1/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$pid:$field" in
+  736:comm=) printf '%s\n' 'hatch-execd' ;;
+  736:args=) printf '%s\n' '/opt/hatch/bin/hatch-execd --runtime-cell-leader=2173' ;;
+  736:ppid=) printf '%s\n' 0 ;;
+  *:comm=) printf '%s\n' bash ;;
+  *:args=) printf '%s\n' 'bash' ;;
+  *:ppid=) printf '%s\n' 736 ;;
+esac
+SH
+  chmod +x "$1/ps"
+}
+
+test_muse_app_home_skips_process_lock() {
+  local dir out rc
+  dir="$TMP_ROOT/muse-app-main"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a declared muse-app home must not fail the process lock: $out"
+  assert_contains "$out" "muse-app" "the muse-app acquire line must name the backend: $out"
+  [ ! -e "$dir/state/.lock" ] || fail "a muse-app acquire wrote state/.lock, but there is no pid to record"
+  [ ! -e "$dir/state/.lock-session" ] || fail "a muse-app acquire wrote a sidecar, but there is no session id to record"
+  pass "session-lock: a declared muse-app home acquires without a process lock and writes none"
+}
+
+test_muse_app_mate_home_skips_process_lock() {
+  local dir parent out rc
+  parent="$TMP_ROOT/muse-app-parent"
+  dir="$TMP_ROOT/muse-app-mate"
+  mkdir -p "$parent/config" "$dir/state"
+  printf 'muse-app\n' > "$parent/config/backend"
+  printf 'eg1\n' > "$dir/.fm-secondmate-home"
+  printf 'parent_home=%s\n' "$parent" > "$dir/.fm-secondmate-parent"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a mate home whose parent declares muse-app must not fail the process lock: $out"
+  [ ! -e "$dir/state/.lock" ] || fail "a muse-app mate acquire wrote state/.lock, but there is no pid to record"
+  pass "session-lock: a mate home under a muse-app parent acquires without a process lock"
+}
+
+test_non_muse_app_home_still_requires_harness() {
+  local dir fakebin out rc
+  dir="$TMP_ROOT/muse-app-negative"
+  fakebin=$(fm_fakebin "$dir")
+  muse_app_fake_ps "$fakebin"
+  mkdir -p "$dir/state"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$fakebin:$PATH" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a home that is not declared muse-app must still fail without a harness process: $out"
+  assert_contains "$out" "cannot locate harness process in ancestry" "the failure must stay the anchor failure: $out"
+  pass "session-lock: the muse-app exemption is backend-gated, not ancestry-gated"
+}
+
+test_muse_app_marker_without_muse_app_parent_still_requires_harness() {
+  local dir parent fakebin out rc
+  parent="$TMP_ROOT/muse-app-parent-other"
+  dir="$TMP_ROOT/muse-app-marker-only"
+  fakebin=$(fm_fakebin "$dir")
+  muse_app_fake_ps "$fakebin"
+  mkdir -p "$parent/config" "$dir/state"
+  printf 'claude\n' > "$parent/config/backend"
+  printf 'eg1\n' > "$dir/.fm-secondmate-home"
+  printf 'parent_home=%s\n' "$parent" > "$dir/.fm-secondmate-parent"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$fakebin:$PATH" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a mate marker under a non-muse-app parent must still fail without a harness process: $out"
+  pass "session-lock: a mate marker alone does not earn the muse-app exemption"
+}
+
+test_muse_app_home_refuses_live_process_lock() {
+  local dir out rc holder
+  dir="$TMP_ROOT/muse-app-live-owner"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  holder=$!
+  printf '%s\n' "$holder" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  kill -KILL "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  expect_code 1 "$rc" "a muse-app acquire must refuse while a live process lock is held: $out"
+  assert_contains "$out" "another live firstmate session holds the lock" "the refusal must name the live owner: $out"
+  pass "session-lock: a muse-app acquire refuses a live process lock instead of overriding it"
+}
+
+test_muse_app_home_leaves_stale_process_lock_untouched() {
+  local dir out rc dead
+  dir="$TMP_ROOT/muse-app-stale-owner"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  dead=$!
+  kill -KILL "$dead" 2>/dev/null || true
+  wait "$dead" 2>/dev/null || true
+  printf '%s\n' "$dead" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a stale process lock must not block a muse-app acquire: $out"
+  [ "$(cat "$dir/state/.lock")" = "$dead" ] || fail "a muse-app acquire rewrote a stale lock line it does not own"
+  pass "session-lock: a muse-app acquire leaves a stale process lock in place"
+}
+
+test_muse_app_home_status_names_binding() {
+  local dir out
+  dir="$TMP_ROOT/muse-app-status"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "muse-app" "status for a muse-app home must not report a process lock as free: $out"
+  pass "session-lock: status for a muse-app home names the binding rule instead of free"
+}
+
+test_muse_app_home_skips_process_lock
+test_muse_app_mate_home_skips_process_lock
+test_non_muse_app_home_still_requires_harness
+test_muse_app_marker_without_muse_app_parent_still_requires_harness
+test_muse_app_home_refuses_live_process_lock
+test_muse_app_home_leaves_stale_process_lock_untouched
+test_muse_app_home_status_names_binding
+
+test_muse_app_explicit_backend_vetoes_marker() {
+  local dir parent fakebin out rc
+  parent="$TMP_ROOT/muse-app-parent-veto"
+  dir="$TMP_ROOT/muse-app-veto"
+  fakebin=$(fm_fakebin "$dir")
+  muse_app_fake_ps "$fakebin"
+  mkdir -p "$parent/config" "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$parent/config/backend"
+  printf 'claude\n' > "$dir/config/backend"
+  printf 'eg1\n' > "$dir/.fm-secondmate-home"
+  printf 'parent_home=%s\n' "$parent" > "$dir/.fm-secondmate-parent"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$fakebin:$PATH" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "an explicit non-muse-app backend must veto a stale marker: $out"
+  assert_contains "$out" "cannot locate harness process in ancestry" "the veto must fall through to the anchor failure: $out"
+  pass "session-lock: an explicit non-muse-app backend vetoes a stale secondmate marker"
+}
+
+test_muse_app_home_status_reports_live_process_lock() {
+  local dir out holder
+  dir="$TMP_ROOT/muse-app-status-live"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  holder=$!
+  printf '%s\n' "$holder" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  kill -KILL "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  assert_contains "$out" "held by live harness pid $holder" "status must report a live process lock on a muse-app home: $out"
+  pass "session-lock: status for a muse-app home reports a live process lock"
+}
+
+test_muse_app_home_status_with_stale_lock_names_binding() {
+  local dir out dead
+  dir="$TMP_ROOT/muse-app-status-stale"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  dead=$!
+  kill -KILL "$dead" 2>/dev/null || true
+  wait "$dead" 2>/dev/null || true
+  printf '%s\n' "$dead" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "muse-app" "status with only a stale lock must fall through to the binding line: $out"
+  pass "session-lock: status for a muse-app home with only a stale lock names the binding rule"
+}
+
+test_muse_app_explicit_backend_vetoes_marker
+test_muse_app_home_status_reports_live_process_lock
+test_muse_app_home_status_with_stale_lock_names_binding
