@@ -67,6 +67,7 @@ CLI-harness crew under an upstream session backend (tmux, Herdr, Zellij, Orca, c
 The tradeoff is explicit: the fleet is homogeneous — one model, one toolset — in exchange for full tool and connected-account access no CLI harness has.
 Session lock on this backend: a muse-app session has no harness process to anchor a pid lock, because a Muse-app session is a hosted conversation with no CLI, no spawnable process, and no ancestry to walk.
 For a home declared muse-app, `bin/fm-lock.sh` acquisition therefore succeeds without writing `state/.lock` or its sidecar, and session start proceeds as a full session rather than a read-only one.
+An explicit non-empty backend decides: a home declaring another backend is not muse-app even if it carries a stale secondmate marker pointing at a muse-app parent, and the marker path applies only when no backend is declared.
 Exclusivity for such a home rests on the endpoint binding, not on a pid: exactly one bound chat per mate in the endpoint record, archival stopping retired chats, and firstmate routing only to the bound chat.
 A muse-app acquire still refuses while a live process lock is held, and it leaves a stale or malformed lock line in place rather than rewriting what it does not own.
 Two candidate identity signals were ruled out: the runtime cell supervisor in the ancestry matches every chat's tool shell and is fail-open rather than an identity, and the runtime-published session id has unverified semantics, no liveness story, and an env-inheritance weakness, so it cannot anchor a lock rule from this repository.

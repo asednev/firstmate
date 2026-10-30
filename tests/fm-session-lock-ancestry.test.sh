@@ -1740,3 +1740,57 @@ test_muse_app_marker_without_muse_app_parent_still_requires_harness
 test_muse_app_home_refuses_live_process_lock
 test_muse_app_home_leaves_stale_process_lock_untouched
 test_muse_app_home_status_names_binding
+
+test_muse_app_explicit_backend_vetoes_marker() {
+  local dir parent fakebin out rc
+  parent="$TMP_ROOT/muse-app-parent-veto"
+  dir="$TMP_ROOT/muse-app-veto"
+  fakebin=$(fm_fakebin "$dir")
+  muse_app_fake_ps "$fakebin"
+  mkdir -p "$parent/config" "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$parent/config/backend"
+  printf 'claude\n' > "$dir/config/backend"
+  printf 'eg1\n' > "$dir/.fm-secondmate-home"
+  printf 'parent_home=%s\n' "$parent" > "$dir/.fm-secondmate-parent"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$fakebin:$PATH" bash "$ROOT/bin/fm-lock.sh" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "an explicit non-muse-app backend must veto a stale marker: $out"
+  assert_contains "$out" "cannot locate harness process in ancestry" "the veto must fall through to the anchor failure: $out"
+  pass "session-lock: an explicit non-muse-app backend vetoes a stale secondmate marker"
+}
+
+test_muse_app_home_status_reports_live_process_lock() {
+  local dir out holder
+  dir="$TMP_ROOT/muse-app-status-live"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  holder=$!
+  printf '%s\n' "$holder" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  kill -KILL "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  assert_contains "$out" "held by live harness pid $holder" "status must report a live process lock on a muse-app home: $out"
+  pass "session-lock: status for a muse-app home reports a live process lock"
+}
+
+test_muse_app_home_status_with_stale_lock_names_binding() {
+  local dir out dead
+  dir="$TMP_ROOT/muse-app-status-stale"
+  mkdir -p "$dir/config" "$dir/state"
+  printf 'muse-app\n' > "$dir/config/backend"
+  cp /bin/sleep "$dir/claude"
+  "$dir/claude" 300 >/dev/null 2>&1 &
+  dead=$!
+  kill -KILL "$dead" 2>/dev/null || true
+  wait "$dead" 2>/dev/null || true
+  printf '%s\n' "$dead" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "muse-app" "status with only a stale lock must fall through to the binding line: $out"
+  pass "session-lock: status for a muse-app home with only a stale lock names the binding rule"
+}
+
+test_muse_app_explicit_backend_vetoes_marker
+test_muse_app_home_status_reports_live_process_lock
+test_muse_app_home_status_with_stale_lock_names_binding

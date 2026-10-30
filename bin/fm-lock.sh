@@ -52,7 +52,8 @@
 # muse-app acquire still refuses while a live process lock is held,
 # leaving a stale or malformed lock line in place rather than rewriting
 # what it does not own. Status for a muse-app home names the binding rule
-# instead of reporting a process lock as free. Ruled out: matching the
+# instead of reporting a process lock as free, unless a live process lock
+# is held, which status reports as held like any other home. Ruled out: matching the
 # runtime cell supervisor (hatch-execd) in the ancestry would pass for
 # every chat's tool shell and is fail-open, not an identity; the
 # runtime-published JARVIS_SESSION_ID has unverified semantics (per-chat
@@ -85,6 +86,11 @@ mkdir -p "$STATE" 2>/dev/null || {
 
 if [ "${1:-}" = "status" ]; then
   if fm_home_is_muse_app "$FM_HOME"; then
+    fm_session_lock_inspect "$STATE"
+    if [ "$FM_LOCK_INSPECT_STATE" = held ]; then
+      echo "lock: held by live harness pid $FM_LOCK_INSPECT_PID"
+      exit 0
+    fi
     echo "lock: muse-app session (no process lock; exclusivity via endpoint binding)"
     exit 0
   fi
